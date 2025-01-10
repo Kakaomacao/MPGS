@@ -1,0 +1,8 @@
+[submodule "dust3r"]
+	path = dust3r
+	url = https://github.com/naver/dust3r
+	branch = cvpr
+
+[submodule "nvdiffrast"]
+	path = nvdiffrast
+	url = https://github.com/NVlabs/nvdiffrast

@@ -1,11 +1,7 @@
-__pycache__/
-*.pyc
-
 /assets
 
 *.pkl
 
-/nvdiffrast
 
 # gaussian_splatting
 /gaussian_splatting/data
@@ -17,6 +13,15 @@ __pycache__/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Ignore Python cache and compiled files
+__pycache__/
+*.pyc
+*.so
+
+# Ignore Ninja build files
+*.ninja*
+*.o
 
 # C extensions
 *.so
