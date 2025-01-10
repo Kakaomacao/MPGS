@@ -1,0 +1,4 @@
+# ninja log v5
+0	5885	1733309245365534323	/home/airlabs/SuGaR/gaussian_splatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-39/simple_knn.o	dce3ef178a204b57
+0	10080	1733309249557543699	/home/airlabs/SuGaR/gaussian_splatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-39/ext.o	5cb3de59e763181b
+0	25820	1733309265293576572	/home/airlabs/SuGaR/gaussian_splatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-39/spatial.o	711037d34286eb61

@@ -1,0 +1,8 @@
+/__pycache__/
+/assets
+
+
+/gaussian_splatting/data
+/gaussian_splatting/output
+
+*.pkl
