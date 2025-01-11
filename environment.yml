@@ -1,0 +1,36 @@
+name: mpgs
+channels:
+  - pytorch
+  - nvidia
+  - defaults
+dependencies:
+  - python=3.11
+  - pytorch=2.0.1
+  - torchvision=0.15.2
+  - torchaudio=2.0.2
+  - pytorch-cuda=11.8
+  - tqdm
+  - scikit-image
+  - scikit-learn
+  - matplotlib
+  - scipy
+  - tensorboard
+  - pip:
+      - joblib
+      - opencv-python
+      - open3d==0.18.0
+      - plyfile==1.1
+      - gradio
+      - einops
+      - trimesh
+      - pyglet<2
+      - huggingface_hub[torch]>=0.22
+      - roma
+      # Optional
+      - pillow-heif # for HEIF/HEIC image support
+      - pyrender # for rendering depths in ScanNet++
+      - kapture # for visloc data loading
+      - kapture-localization
+      - numpy-quaternion
+      - pycolmap # for PnP
+      - poselib # for PnP
