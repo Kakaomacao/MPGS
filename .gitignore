@@ -1,5 +1,6 @@
 /assets
 /output
+/projection_renderer
 
 *.pkl
 

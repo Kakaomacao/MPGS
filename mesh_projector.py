@@ -6,17 +6,14 @@ import json
 import os
 from tqdm import tqdm
 import cv2
-from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
-import random
 import copy
-
 
 
 def main():
     # 설정!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    dataset_type = "LLFF"    # 데이터셋 타입 (DTU 또는 LLFF)
+    dataset_type = "DTU"    # 데이터셋 타입 (DTU 또는 LLFF)
     framework = "dust3r"    # 사용할 프레임워크 (dust3r 또는 colmap)
     n = 300_000             # Poisson Disk Sampling 할 점의 수
     
@@ -79,27 +76,26 @@ def main():
         cameras_data, train_cams_data = load_camera_parameters(cameras_path, train_image_names, framework)
 
         # 필요한 경우 카메라 intrinsic 스케일링
-        if framework == "dust3r":
-            if dataset_type == "DTU":
-                target_width = 400
-                target_height = 300
-            elif dataset_type == "LLFF":
-                target_width = 504
-                target_height = 378
+        if dataset_type == "DTU":
+            target_width = 400
+            target_height = 300
+        elif dataset_type == "LLFF":
+            target_width = 504
+            target_height = 378
 
         cameras_data, scale1 = scale_camera(cameras_data, target_width, target_height)
         train_cams_data, scale2 = scale_camera(train_cams_data, target_width, target_height)
         
         # Poisson Disk Sampling 후 저장
         print("Poison Disk Sampling...")
-        sampled_points = mesh.sample_points_poisson_disk(number_of_points=n)
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(np.array(sampled_points.points))
-        pcd.colors = sampled_points.colors
-        pcd.normals = sampled_points.normals
-        # o3d.visualization.draw_geometries([pcd])
-        o3d.io.write_point_cloud(os.path.join(output_dir, f"sampled_points_{n}.ply"), pcd)
-        print(f"Sampled points saved to: {os.path.join(output_dir, f'sampled_points_{n}.ply')}")
+        # sampled_points = mesh.sample_points_poisson_disk(number_of_points=n)
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(np.array(sampled_points.points))
+        # pcd.colors = sampled_points.colors
+        # pcd.normals = sampled_points.normals
+        # # o3d.visualization.draw_geometries([pcd])
+        # o3d.io.write_point_cloud(os.path.join(output_dir, f"sampled_points_{n}.ply"), pcd)
+        # print(f"Sampled points saved to: {os.path.join(output_dir, f'sampled_points_{n}.ply')}")
 
         save_cams_convert_W2CtoC2W(cameras_data, scaled_cams_path)
 
@@ -112,29 +108,16 @@ def main():
         extrapolation_factor = 0.1
         num_vertical = 1
         
-        if framework == "dust3r":
-            new_cameras_data, intersection_point = generate_varied_camera_data_with_sphere(selected_cameras_data, num_intermediate=num_intermediate, vertical_amplitude=vertical_amplitude, extrapolation_factor=extrapolation_factor, num_vertical=num_vertical)
+        new_cameras_data, intersection_point = generate_varied_camera_data_with_sphere(selected_cameras_data, num_intermediate=num_intermediate, vertical_amplitude=vertical_amplitude, extrapolation_factor=extrapolation_factor, num_vertical=num_vertical)
         new_cam_output = os.path.join(output_dir, f"n_inter{num_intermediate}_n_vertical{num_vertical}_va_{vertical_amplitude}_ef_{extrapolation_factor}")
         os.makedirs(new_cam_output, exist_ok=True)
         
-        new_color = (-1, -1, -1)
         # 각 카메라 정보에 대해 처리
         for camera_info in tqdm(new_cameras_data, desc=f"Processing Data: {target_data}", position=1, leave=False):
-            if framework == "dust3r":
-                w2c = np.array(camera_info['extrinsic'])
-                k = camera_info['intrinsic']
-                width = target_width
-                height = target_height
-            elif framework == "colmap":
-                # 카메라 정보 가져오기
-                cam_pos = np.array(camera_info['position'])
-                cam_rot = np.array(camera_info['rotation'])
-                fx = camera_info['fx']
-                fy = camera_info['fy']
-                width = camera_info['width']
-                height = camera_info['height']
-                w2c = extrinsicMatrix(cam_pos, cam_rot)
-                k = intrinsicMatrix(fx, fy, width, height)
+            w2c = np.array(camera_info['extrinsic'])
+            k = camera_info['intrinsic']
+            width = target_width
+            height = target_height
 
             # W2C
             p_m, n_m, c_m, mask = world2Camera(w2c, k, vertices, normals_m, colors_m, camera_info['img_name'], framework)
@@ -151,54 +134,29 @@ def main():
             mesh_c.vertex_colors = o3d.utility.Vector3dVector(filtered_colors)
             mesh_c.triangles = o3d.utility.Vector3iVector(triangles)
 
-            # if white:
-            #     background = np.full((height, width, 3), (255, 255, 255), dtype=np.uint8)
-            # else:
-            #     background = np.full((height, width, 3), (0, 0, 0), dtype=np.uint8)
             background = np.full((height, width, 3), (255, 255, 255), dtype=np.uint8)
             projected_mesh, mask = project_and_draw_mesh(mesh_c, k, background)
-
-            if new_color == (-1, -1, -1):
-                new_color = color_picker(projected_mesh)
+            depth_img = mesh_depth(mesh_c, w2c, k, width, height)
 
             masked_img = np.zeros_like(projected_mesh)
-            masked_img[mask != 1] = new_color
+            masked_img[mask != 1] = (255, 255, 255)
 
             image_name = camera_info['img_name']
-            novel_view_path = os.path.join(new_cam_output, f"{image_name}.jpg")
-            mask_path = os.path.join(new_cam_output, f"mask_{image_name}.png")
+            novel_view_path = os.path.join(new_cam_output, "image")
+            novel_mask_path = os.path.join(new_cam_output, "mask")
+            novel_depth_path = os.path.join(new_cam_output, "depth")
 
-            cv2.imwrite(novel_view_path, projected_mesh)
-            cv2.imwrite(mask_path, masked_img)
+            os.makedirs(novel_view_path, exist_ok=True)
+            os.makedirs(novel_mask_path, exist_ok=True)
+            os.makedirs(novel_depth_path, exist_ok=True)
+
+            cv2.imwrite(os.path.join(novel_view_path, f"{image_name}.jpg"), projected_mesh)
+            cv2.imwrite(os.path.join(novel_mask_path, f"mask_{image_name}.png"),  masked_img)
+            cv2.imwrite(os.path.join(novel_depth_path, f"depth_{image_name}.png"), depth_img)
 
         save_transposed_extrinsics(new_cameras_data, output_dir)
 
-        merged_camera = cameras_data + new_cameras_data
-        with open(os.path.join(output_dir, "merged_cameras.json"), 'w') as f:
-            json.dump(merged_camera, f, indent=4)
-
-    # merge_ply_files(os.path.join(source_root, "sparse/0", "points3D.ply"), os.path.join(output_dir, f"sampled_points_{n}.ply"), os.path.join(output_dir, "merged_points.ply"))
-
 # ----------------------------------------------------------------------------------------------------------------------
-
-# 외부 파라미터 : W => C
-def extrinsicMatrix(camera_position, camera_rotation):
-    R = camera_rotation
-    t = camera_position
-    Rt = np.zeros((4, 4))
-    Rt[:3, :3] = R.transpose()
-    Rt[:3, 3] = t
-    Rt[3, 3] = 1.0
-    return np.float32(Rt)
-
-
-# 내부 파라미터 : C => I
-def intrinsicMatrix(fx, fy, width, height):
-    K = [[fx, 0, width / 2],
-         [0, fy, height / 2],
-         [0, 0, 1]]
-    return K
-
 
 # Frustum Culling
 # World => Camera로 변환 후 Frustum에 해당하는 Mask return
@@ -266,30 +224,6 @@ def world2Camera(extrinsicParameter, intrinsicParameter, points, normals, colors
     return transformed_points, transformed_normals, colors, frustum_mask
 
 
-# Frustum Culling한 points_camera들 Image 좌표료 변환해서 return
-def C2I(intrinsic, points_camera, colors_camera):
-    # 카메라 좌표계의 점들을 numpy 배열로 변환
-    # points_camera_np = np.asarray(points_camera.points)
-
-    # 투영 과정 (camera space -> image space)
-    projected_points = np.dot(intrinsic, points_camera[:, :3].T).T
-    
-    # 동차 좌표계에서 (x, y) 평면 좌표를 얻기 위해 z 좌표로 나누기
-    projected_points[:, :2] = projected_points[:, :2] / projected_points[:, 2:3]
-    
-    u, v = projected_points[:, 0], projected_points[:, 1]    
-
-    # 이미지 범위를 벗어난 좌표는 클리핑
-    u = np.clip(u, 0, intrinsic[0][2] * 2 - 1)
-    v = np.clip(v, 0, intrinsic[1][2] * 2 - 1)
-    
-    # Stack and return the 2D image coordinates
-    image_coords = np.vstack((u, v)).T
-    colors_projected = colors_camera
-    
-    return image_coords, colors_projected
-
-
 def project_and_draw_mesh(mesh, intrinsic, image):
     """
     메쉬를 2D 이미지에 투영하고 삼각형을 그립니다.
@@ -345,109 +279,36 @@ def project_and_draw_mesh(mesh, intrinsic, image):
     return projected_image, mask
 
 
-def project_and_draw_mesh_with_transparency(mesh, intrinsic, width, height):
-    """
-    메쉬를 투명한 배경 위에 투영하고, 마스크 이미지를 생성합니다.
+def mesh_depth(mesh, extrinsic, intrinsic, width, height):
+    ext = np.array(extrinsic)
+    R = ext[:3, :3]
+    t = ext[:3, 3]
     
-    Args:
-        mesh: Open3D TriangleMesh 객체
-        intrinsic: 카메라 내부 파라미터 (3x3 numpy 배열)
-        width: 이미지 가로 크기
-        height: 이미지 세로 크기
+    eye = t
+    center = eye + R[:, 2]
+    up = -R[:, 1]
     
-    Returns:
-        투명 배경 위의 투영된 이미지 (RGBA), 마스크 이미지
-    """
-    # 메쉬 정점과 삼각형 가져오기
-    vertices = np.asarray(mesh.vertices)  # N x 3
-    triangles = np.asarray(mesh.triangles)  # M x 3
-    vertex_colors = np.asarray(mesh.vertex_colors)  # N x 3
-
-    # 투명한 배경 (RGBA)
-    projected_image = np.zeros((height, width, 4), dtype=np.uint8)  # (H, W, 4) -> RGBA
-    mask_image = np.zeros((height, width), dtype=np.uint8)  # 마스크 이미지
-
-    # 메쉬 정점 2D 좌표로 투영
-    projected_points = np.dot(intrinsic, vertices.T).T
-    projected_points[:, :2] /= projected_points[:, 2:3]  # 동차 좌표 정규화
-    projected_points = projected_points[:, :2]  # u, v만 사용
-
-    # 삼각형의 평균 깊이 계산
-    triangle_depths = np.mean(vertices[triangles, 2], axis=1)
-    sorted_indices = np.argsort(-triangle_depths)  # 깊이를 기준으로 내림차순 정렬
-    triangles_sorted = triangles[sorted_indices]
-
-    # 삼각형 그리기
-    for triangle in tqdm(triangles_sorted, leave=False, desc="Drawing triangles"):
-        # 삼각형 꼭짓점의 2D 좌표 가져오기
-        pts_2d = projected_points[triangle].astype(int)
-
-        # 이미지 범위 안에 있는지 확인
-        if np.all(pts_2d[:, 0] >= 0) and np.all(pts_2d[:, 0] < width) and \
-           np.all(pts_2d[:, 1] >= 0) and np.all(pts_2d[:, 1] < height):
-            # 삼각형 색상 계산
-            color = (vertex_colors[triangle].mean(axis=0) * 255).astype(int)  # RGB
-            color_rgb = tuple(color)  # (R, G, B)
-            color_bgr = (int(color_rgb[2]), int(color_rgb[1]), int(color_rgb[0]))  # BGR 순서로 변환
-
-            # RGB 채널에 색상 적용
-            rgb_image = projected_image[..., :3].copy()  # RGB 채널 복사
-            cv2.fillPoly(rgb_image, [pts_2d.reshape((-1, 1, 2))], color=color_bgr)
-            projected_image[..., :3] = rgb_image  # RGB 업데이트
-
-            # 알파 채널에 불투명(255) 설정
-            alpha_channel = projected_image[..., 3].copy()
-            cv2.fillPoly(alpha_channel, [pts_2d.reshape((-1, 1, 2))], color=255)
-            projected_image[..., 3] = alpha_channel
-
-            # 마스크 갱신 (255 값 추가)
-            cv2.fillPoly(mask_image, [pts_2d.reshape((-1, 1, 2))], color=255)
-
-    return projected_image, mask_image
-
-
-def draw_polygon_torch(image_tensor, pts_2d, color):
-    """
-    Torch를 사용하여 삼각형을 이미지를 그립니다.
-
-    Args:
-        image_tensor: GPU 상의 이미지 텐서 (H x W x 3)
-        pts_2d: 삼각형의 꼭짓점 좌표 (3 x 2)
-        color: 삼각형의 색상 (BGR 튜플)
-
-    Returns:
-        수정된 이미지 텐서
-    """
-    # 삼각형 꼭짓점 좌표 분리
-    x0, y0 = pts_2d[0, 0, 0], pts_2d[0, 0, 1]
-    x1, y1 = pts_2d[1, 0, 0], pts_2d[1, 0, 1]
-    x2, y2 = pts_2d[2, 0, 0], pts_2d[2, 0, 1]
-
-    # 삼각형 경계 박스 계산
-    min_x = max(0, int(torch.min(torch.tensor([x0, x1, x2]))))
-    max_x = min(image_tensor.shape[1], int(torch.max(torch.tensor([x0, x1, x2]))))
-    min_y = max(0, int(torch.min(torch.tensor([y0, y1, y2]))))
-    max_y = min(image_tensor.shape[0], int(torch.max(torch.tensor([y0, y1, y2]))))
-
-    # 경계 박스 내 모든 픽셀 생성
-    xx, yy = torch.meshgrid(torch.arange(min_x, max_x, device="cuda"), 
-                            torch.arange(min_y, max_y, device="cuda"), indexing="ij")
-
-    # 배리센터 좌표 계산
-    denominator = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
-    w0 = ((y1 - y2) * (xx - x2) + (x2 - x1) * (yy - y2)) / denominator
-    w1 = ((y2 - y0) * (xx - x2) + (x0 - x2) * (yy - y2)) / denominator
-    w2 = 1 - w0 - w1
-
-    # 삼각형 내부 여부 판단
-    mask = (w0 >= 0) & (w1 >= 0) & (w2 >= 0)
-
-    # 색상 적용
-    image_tensor[yy[mask], xx[mask], 0] = color[0]  # B
-    image_tensor[yy[mask], xx[mask], 1] = color[1]  # G
-    image_tensor[yy[mask], xx[mask], 2] = color[2]  # R
-
-    return image_tensor
+    renderer = o3d.visualization.rendering.OffscreenRenderer(width, height)
+    material = o3d.visualization.rendering.MaterialRecord()
+    renderer.scene.add_geometry("mesh", mesh, material)
+    
+    renderer.scene.camera.set_projection(
+        intrinsics=intrinsic,
+        image_width=width,
+        image_height=height,
+        near_plane=0.1,
+        far_plane=10.0
+    )
+    
+    renderer.scene.camera.look_at(center=center, eye=eye, up=up)
+    
+    depth_image = renderer.render_to_depth_image()
+    depth_array = np.asarray(depth_image)
+    
+    depth_normalized = cv2.normalize(depth_array, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+    # depth_colored = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
+    
+    return depth_normalized
 
 
 def generate_varied_camera_data_with_sphere(cameras_data, num_intermediate=3, vertical_amplitude=0.2, extrapolation_factor=0.15, num_vertical=1):
@@ -717,21 +578,6 @@ def save_transposed_extrinsics(new_cameras_data, output_dir):
     with open(os.path.join(output_dir, "new_cameras.json"), 'w') as f:
         json.dump(new_cameras_data, f, indent=4)
 
-
-def color_picker(img):
-    all_colors = set((r, g, b) for r in range(256) for g in range(256) for b in range(256))
-    used_colors = set(map(tuple, img.reshape(-1, 3)))
-
-    unused_colors = list(all_colors - used_colors)
-    ret_color = None
-    if unused_colors:
-        ret_color = random.choice(unused_colors)
-    else: 
-        raise ValueError("all colors have been used")
-    
-    return ret_color
-
-
 # -----------------------------------------------------------------------
 # Visualize 관련
 
@@ -771,7 +617,7 @@ def visualize_mesh_and_cameras(mesh, cameras_data, camera_scale=0.1):
 
     # Start visualization
     o3d.visualization.draw_geometries(vis_objects, window_name="Mesh and Cameras")
-    
+
 def estimate_intersection(camera_poses):
     """
     Estimate the intersection point of rays from multiple cameras.
