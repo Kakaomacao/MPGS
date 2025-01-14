@@ -28,7 +28,7 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 
-def render_set(model_path, name, iteration, views, gaussians, pipeline, background, train_test_exp, separate_sh, masked_psnr=False):
+def render_set(model_path, name, iteration, views, gaussians, pipeline, background, separate_sh, masked_psnr=False):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
 
@@ -40,12 +40,8 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     makedirs(gts_path, exist_ok=True)
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        rendering = render(view, gaussians, pipeline, background, use_trained_exp=train_test_exp, separate_sh=separate_sh)["render"]
+        rendering = render(view, gaussians, pipeline, background, separate_sh=separate_sh)["render"]
         gt = view.original_image[0:3, :, :]
-
-        if args.train_test_exp:
-            rendering = rendering[..., rendering.shape[-1] // 2:]
-            gt = gt[..., gt.shape[-1] // 2:]
 
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
@@ -62,11 +58,11 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
         if not skip_train:
-            render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background, dataset.train_test_exp, separate_sh)
+            render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background, separate_sh)
 
         if not skip_test:
             masked_psnr = (dataset.dataset == 'DTU')
-            render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background, dataset.train_test_exp, separate_sh, masked_psnr=masked_psnr)
+            render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background, separate_sh, masked_psnr=masked_psnr)
 
 if __name__ == "__main__":
     # Set up command line argument parser
@@ -78,24 +74,25 @@ if __name__ == "__main__":
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     args = get_combined_args(parser)
-    print("Rendering " + args.model_path)
+    # print("Rendering " + args.model_path)
 
     args.dtu_mask_path = '/home/airlabs/Dataset/DTU/submission_data/idrmasks' # 필수
     args.resolution = 1
-    args.dataset = "LLFF"
-    # args.source_path = "/home/airlabs/Dataset/LLFF/llff_8/fern"
-    # args.model_path = "/home/airlabs/SuGaR/gaussian_splatting/output/LLFF/fern_novel_mask_copy"
+    # args.dataset = "LLFF"
+    # args.source_path = "/home/airlabs/Dataset/LLFF/llff_8/leaves"
+    # args.model_path = "/home/airlabs/MPGS/output/LLFF/leaves_vanila"
     
-    # args.dataset = "DTU"
-    # args.source_path = f"/home/airlabs/Dataset/DTU/dtu_4/scan8"
-    # args.model_path = "/home/airlabs/SuGaR/gaussian_splatting/output/DTU/scan8"
-    # args.sh_degree = 3
-    # args.images = "distorted"
-    # args.white_background = False
-    # args.data_device = "cuda"
+    args.dataset = "DTU"
+    args.source_path = "/home/airlabs/Dataset/DTU/dtu_4/scan38"
+    args.model_path = "/home/airlabs/MPGS/output/236cfc08-6"
+    args.sh_degree = 3
+    args.images = "images"
+    args.depths = "depths"
+    args.data_device = "cuda"
     args.eval = True
-    # args.novelTrain = True
+    args.novelTrain = False
     args.input_views = 3
+    args.white_background = False
 
     # Initialize system state (RNG)
     safe_state(args.quiet)

@@ -9,6 +9,9 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import matplotlib
+matplotlib.use('TkAgg')
+
 import os
 import torch
 from random import randint
@@ -44,22 +47,21 @@ try:
 except:
     SPARSE_ADAM_AVAILABLE = False
 
-import matplotlib.pyplot as plt
     
-def show_plot(image):
-    if isinstance(image, torch.Tensor):
-        image= image.squeeze()    
-        if image.dim() == 3:
-            if image.shape[0] == 3:
-                image = image.detach().cpu().numpy().transpose(1, 2, 0)
-            else :
-                image = image.detach().cpu().numpy()
-    if isinstance(image, np.ndarray):
-        if image.shape[0] == 3:
-            image = image.transpose(1, 2, 0)
+# def show_plot(image):
+#     if isinstance(image, torch.Tensor):
+#         image= image.squeeze()    
+#         if image.dim() == 3:
+#             if image.shape[0] == 3:
+#                 image = image.detach().cpu().numpy().transpose(1, 2, 0)
+#             else :
+#                 image = image.detach().cpu().numpy()
+#     if isinstance(image, np.ndarray):
+#         if image.shape[0] == 3:
+#             image = image.transpose(1, 2, 0)
     
-    plt.imshow(image)
-    plt.show()
+#     plt.imshow(image)
+#     plt.show()
     
 
 def create_camera_actor(scale=0.3, color=(1.0, 0.0, 0.0)):
@@ -237,6 +239,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
+        # Isotropic loss from MonoGS
         # scaling = gaussians.get_scaling
         # isotropic_loss = torch.abs(scaling - scaling.mean(dim=1).view(-1, 1))
         # loss2 = 10 * isotropic_loss.mean()
@@ -246,17 +249,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         # Depth regularization
         Ll1depth_pure = 0.0
-        if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
+        if depth_l1_weight(iteration) > 0 :
             invDepth = render_pkg["depth"]
-            mono_invdepth = viewpoint_cam.invdepthmap.cuda()
-            depth_mask = viewpoint_cam.depth_mask.cuda()
+            depth = viewpoint_cam.depth
 
-            Ll1depth_pure = torch.abs((invDepth  - mono_invdepth) * depth_mask).mean()
-            Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
-            loss += Ll1depth
-            Ll1depth = Ll1depth.item()
+            invDepth_inv = 1.0 / invDepth
+            normalized_invDepth = (invDepth - invDepth.min()) / (invDepth.max() - invDepth.min())
+            normalized_depth = (depth - depth.min()) / (depth.max() - depth.min())
+            # Ll1depth_pure = torch.abs((invDepth  - mono_invdepth) * depth_mask).mean()
+            # Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
+            # loss += Ll1depth
+            # Ll1depth = Ll1depth.item()
         else:
             Ll1depth = 0
+            
+        if iteration == 2000:
+            print("2000!!!")
 
         loss.backward()
 
@@ -265,7 +273,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
+            # ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
 
             if iteration % 10 == 0:
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
@@ -405,7 +413,7 @@ if __name__ == "__main__":
     args.eval = True
     args.novelTrain = True
     # args.iterations = 15_000
-    args.model_path = f"output/{args.dataset}/{target}_vanila"
+    # args.model_path = f"output/{args.dataset}/{target}_vanila"
 
     # Start GUI server, configure and run training
     if not args.disable_viewer:

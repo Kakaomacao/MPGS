@@ -356,8 +356,6 @@ def readJsonCamerasDUST3R(json_path, images_folder, scale=50):
         image = Image.open(image_path)
         W1, H1 = image.size
         
-        # TODO: depth, depth_path, depth_bounds
-        # depth : np.array / depth_path : str / depth_bounds : tuple 
         depth = None
         depth_path = os.path.join(images_folder, "depths")
         depth_name = "depth_" + cam["img_name"] + ".png"
@@ -419,10 +417,7 @@ def readCamerasFromDUST3R(img_path, cam_path, depth_path, load_fg_mask=False, dt
         image = Image.open(image_path)
         W1, H1 = image.size
 
-        # TODO: depth, depth_path, depth_bounds
-        # depth : np.array / depth_path : str / depth_bounds : tuple
         depth = None
-        depth_path = os.path.join(img_path, "depths")
         depth_bounds = None
         depth_name = f"depth_{image_name}.png"
         if os.path.exists(os.path.join(depth_path, depth_name)):           
@@ -548,7 +543,6 @@ def readCamerasFromDUST3Rtest(img_path, cam_path, white_background, extension=".
             
     return cam_infos
 
-# depths (images, eval 사이), train_test_exp는 사용 x
 def readDUST3RInfo(path, images, depths, eval, llffhold=8, dataset='DTU', input_n=3, dtu_mask_path=None, novelTrainView=False, extension=".jpg", white_background=False): 
     scale = 1  # dust3r scale is too small, 3dgs SIBR viewer cannot see, so we scale 100
     

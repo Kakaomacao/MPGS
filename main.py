@@ -215,10 +215,17 @@ if __name__ == '__main__':
             filtered_pts3d = [pts3d[idx] for idx in train_img_idxs]
 
         depth_path = os.path.join(dust3r_path, "depths")
+        orig = os.path.join(dust3r_path, "originalSize_depths")
         os.makedirs(depth_path, exist_ok=True)
+        os.makedirs(orig, exist_ok=True)
         for idx in train_img_idxs:
             depth_map = np.array(depths[idx].cpu().detach())
-            save_depth(path=depth_path, depth_map=depth_map, img_name=imgs_name[idx])
+            if dataset == 'llff':
+                resized_depth = cv2.resize(depth_map, (504, 378), interpolation=cv2.INTER_AREA)
+            elif dataset == 'dtu':
+                resized_depth = cv2.resize(depth_map, (400, 300), interpolation=cv2.INTER_AREA) # Best for downscaling
+            save_depth(path=orig, depth_map=depth_map, img_name=imgs_name[idx])
+            save_depth(path=depth_path, depth_map=resized_depth, img_name=imgs_name[idx])
 
         # for idx, (im, conf_mask, pts) in enumerate(zip(imgs, confidence_masks, pts3d)):
         for idx, (im, conf_mask, pts) in enumerate(zip(filtered_pcd, filtered_confidence_masks, filtered_pts3d)):
