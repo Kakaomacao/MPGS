@@ -37,6 +37,7 @@ def main():
             "flower": {"001", "017", "033"},
             "fortress": {"001", "021", "041"},
             "horns": {"DJI_20200223_163017_967", "DJI_20200223_163053_863", "DJI_20200223_163225_243"},
+            "leaves": ["001", "012", "025"],
             "orchids": {"001", "012", "023"},
             "room": {"DJI_20200226_143851_396", "DJI_20200226_143918_576", "DJI_20200226_143946_704"},
             "trex": {"DJI_20200223_163551_210", "DJI_20200223_163616_980", "DJI_20200223_163654_571"},
@@ -88,14 +89,14 @@ def main():
         
         # Poisson Disk Sampling 후 저장
         print("Poison Disk Sampling...")
-        # sampled_points = mesh.sample_points_poisson_disk(number_of_points=n)
-        # pcd = o3d.geometry.PointCloud()
-        # pcd.points = o3d.utility.Vector3dVector(np.array(sampled_points.points))
-        # pcd.colors = sampled_points.colors
-        # pcd.normals = sampled_points.normals
-        # # o3d.visualization.draw_geometries([pcd])
-        # o3d.io.write_point_cloud(os.path.join(output_dir, f"sampled_points_{n}.ply"), pcd)
-        # print(f"Sampled points saved to: {os.path.join(output_dir, f'sampled_points_{n}.ply')}")
+        sampled_points = mesh.sample_points_poisson_disk(number_of_points=n)
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(np.array(sampled_points.points))
+        pcd.colors = sampled_points.colors
+        pcd.normals = sampled_points.normals
+        # o3d.visualization.draw_geometries([pcd])
+        o3d.io.write_point_cloud(os.path.join(output_dir, f"sampled_points_{n}.ply"), pcd)
+        print(f"Sampled points saved to: {os.path.join(output_dir, f'sampled_points_{n}.ply')}")
 
         save_cams_convert_W2CtoC2W(cameras_data, scaled_cams_path)
 
@@ -109,8 +110,6 @@ def main():
         num_vertical = 1
         
         new_cameras_data, intersection_point = generate_varied_camera_data_with_sphere(selected_cameras_data, num_intermediate=num_intermediate, vertical_amplitude=vertical_amplitude, extrapolation_factor=extrapolation_factor, num_vertical=num_vertical)
-        new_cam_output = os.path.join(output_dir, f"n_inter{num_intermediate}_n_vertical{num_vertical}_va_{vertical_amplitude}_ef_{extrapolation_factor}")
-        os.makedirs(new_cam_output, exist_ok=True)
         
         # 각 카메라 정보에 대해 처리
         for camera_info in tqdm(new_cameras_data, desc=f"Processing Data: {target_data}", position=1, leave=False):
@@ -136,23 +135,26 @@ def main():
 
             background = np.full((height, width, 3), (255, 255, 255), dtype=np.uint8)
             projected_mesh, mask = project_and_draw_mesh(mesh_c, k, background)
-            depth_img = mesh_depth(mesh_c, w2c, k, width, height)
+            depth_img, depth_max, depth_min = mesh_depth(mesh, w2c, k, width, height)
 
             masked_img = np.zeros_like(projected_mesh)
             masked_img[mask != 1] = (255, 255, 255)
 
             image_name = camera_info['img_name']
-            novel_view_path = os.path.join(new_cam_output, "image")
-            novel_mask_path = os.path.join(new_cam_output, "mask")
-            novel_depth_path = os.path.join(new_cam_output, "depth")
+            novel_view_path = os.path.join(output_dir, "images")
+            novel_mask_path = os.path.join(output_dir, "masks")
+            novel_depth_path = os.path.join(output_dir, "depths")
 
             os.makedirs(novel_view_path, exist_ok=True)
             os.makedirs(novel_mask_path, exist_ok=True)
             os.makedirs(novel_depth_path, exist_ok=True)
 
-            cv2.imwrite(os.path.join(novel_view_path, f"{image_name}.jpg"), projected_mesh)
+            cv2.imwrite(os.path.join(novel_view_path, f"{image_name}.png"), projected_mesh)
             cv2.imwrite(os.path.join(novel_mask_path, f"mask_{image_name}.png"),  masked_img)
             cv2.imwrite(os.path.join(novel_depth_path, f"depth_{image_name}.png"), depth_img)
+            with open(os.path.join(novel_depth_path, f"depth_{image_name}.txt"), "w") as f:
+                f.write(f"max: {depth_max}\n")
+                f.write(f"min: {depth_min}\n")
 
         save_transposed_extrinsics(new_cameras_data, output_dir)
 
@@ -284,11 +286,22 @@ def mesh_depth(mesh, extrinsic, intrinsic, width, height):
     R = ext[:3, :3]
     t = ext[:3, 3]
     
-    eye = t
-    center = eye + R[:, 2]
-    up = -R[:, 1]
+    R_C2W = R.T
+    t_C2W = -R.T @ t
     
+    eye = t_C2W
+    center = eye + R_C2W[:, 2]
+    up = -R_C2W[:, 1]
+    
+    print("Eye (Camera Position):", eye)
+    print("Center (Look At):", center)
+    print("Up (Up Direction):", up)
+    print("Intrinsic Matrix:\n", intrinsic)
+    
+    renderer = None
     renderer = o3d.visualization.rendering.OffscreenRenderer(width, height)
+    
+    renderer.scene.remove_geometry("mesh")  # 기존 메쉬 제거
     material = o3d.visualization.rendering.MaterialRecord()
     renderer.scene.add_geometry("mesh", mesh, material)
     
@@ -305,10 +318,15 @@ def mesh_depth(mesh, extrinsic, intrinsic, width, height):
     depth_image = renderer.render_to_depth_image()
     depth_array = np.asarray(depth_image)
     
-    depth_normalized = cv2.normalize(depth_array, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+    print("Raw Depth Array (Min, Max):", np.min(depth_array), np.max(depth_array))
+    
+    original_max = np.max(depth_array)
+    original_min = np.min(depth_array)
+    depth_map_normalized = (depth_array - np.min(depth_array)) / (np.max(depth_array) - np.min(depth_array))
+    scaled_depth_map = (depth_map_normalized * 255).astype(np.uint8)
     # depth_colored = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
     
-    return depth_normalized
+    return scaled_depth_map, original_max, original_min
 
 
 def generate_varied_camera_data_with_sphere(cameras_data, num_intermediate=3, vertical_amplitude=0.2, extrapolation_factor=0.15, num_vertical=1):

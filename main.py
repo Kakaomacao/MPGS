@@ -90,18 +90,6 @@ def poisson_mesh_pipeline(pcd, output_mesh_path):
     o3d.io.write_triangle_mesh(output_mesh_path, mesh, print_progress=True)
     print("[INFO] Done.")
 
-
-def get_image_sizes(directory):
- 
-    image_sizes = {}
-    for filename in os.listdir(directory):
-            filepath = os.path.join(directory, filename)
-            
-            if os.path.isfile(filepath) and filename.lower().endswith(('png', 'jpg', 'jpeg', 'bmp', 'gif')):
-                with Image.open(filepath) as img:
-                    return img.size  # (가로, 세로)
-
-
 def save_cams(path, poses, focal, img_filenames, cc, orig_w, orig_h):
     poses = to_numpy(poses)
     cx, cy = cc
@@ -127,6 +115,16 @@ def save_cams(path, poses, focal, img_filenames, cc, orig_w, orig_h):
             f.write('0 ' + str(focals[i][0] * scaleH)+ ' ' + str(orig_h /2 ) + '\n')
             f.write('0 0 1\n')
 
+def save_depth(path, depth_map, img_name):
+    original_max = np.max(depth_map)
+    original_min = np.min(depth_map)
+    depth_map_normalized = (depth_map - np.min(depth_map)) / (np.max(depth_map) - np.min(depth_map))
+    scaled_depth_map = (depth_map_normalized * 255).astype(np.uint8)
+    cv2.imwrite(os.path.join(path, "depth_" + img_name.split(".")[0] + ".png"), scaled_depth_map)
+    with open(os.path.join(path,"depth_" + img_name.split(".")[0] + ".txt"), "w") as f:
+        f.write(f"max: {original_max}\n")
+        f.write(f"min: {original_min}\n")
+
 
 if __name__ == '__main__':
     device = 'cuda'
@@ -144,6 +142,7 @@ if __name__ == '__main__':
             "flower": ["image001", "image017", "image033"],
             "fortress": ["image001", "image021", "image041"],
             "horns": ["DJI_20200223_163017_967", "DJI_20200223_163053_863", "DJI_20200223_163225_243"],
+            "leaves": ["image001", "image012", "image025"],
             "orchids": ["image001", "image012", "image023"],
             "room": ["DJI_20200226_143851_396", "DJI_20200226_143918_576", "DJI_20200226_143946_704"],
             "trex": ["DJI_20200223_163551_210", "DJI_20200223_163616_980", "DJI_20200223_163654_571"],
@@ -154,16 +153,21 @@ if __name__ == '__main__':
     if dataset == 'dtu':
         source_path = "/home/airlabs/Dataset/DTU/dtu_4/"
     elif dataset == 'llff':
-        source_path = "/home/airlabs/Dataset/LLFF/llff_8/"
+        source_path = "/home/airlabs/Dataset/LLFF/llff_8/"   
+
     model_name = "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
     # you can put the path to a local checkpoint in model_name if needed
     # model = AsymmetricCroCo3DStereo.from_pretrained(model_name).to(device)
     model = AsymmetricMASt3R.from_pretrained(model_name).to(device)
     
     for data in sorted(os.listdir(source_path)):
+        print("=" * 100)
+        print(f"[INFO] Processing {data} ...")
+        dust3r_path = os.path.join(source_path, data, "dust3r_test")
+        os.makedirs(dust3r_path, exist_ok=True)
+        
         img_path = os.path.join(source_path, data, "images")
         img_list = sorted(os.listdir(img_path))
-        # train_img = [os.path.join(img_path, im) for idx, im in enumerate(img_list) if idx in make_idxs]
         train_img = [os.path.join(img_path, im) for idx, im in enumerate(img_list)]
 
         if dataset == 'llff':
@@ -195,6 +199,7 @@ if __name__ == '__main__':
         focals = scene.get_focals()
         poses = scene.get_im_poses()
         pts3d = scene.get_pts3d()
+        depths = scene.get_depthmaps()
         confidence_masks = scene.get_masks()
         intrinsics = scene.get_intrinsics()
         
@@ -208,7 +213,13 @@ if __name__ == '__main__':
             filtered_pcd = [imgs[idx] for idx in train_img_idxs]
             filtered_confidence_masks = [confidence_masks[idx] for idx in train_img_idxs]
             filtered_pts3d = [pts3d[idx] for idx in train_img_idxs]
-        
+
+        depth_path = os.path.join(dust3r_path, "depths")
+        os.makedirs(depth_path, exist_ok=True)
+        for idx in train_img_idxs:
+            depth_map = np.array(depths[idx].cpu().detach())
+            save_depth(path=depth_path, depth_map=depth_map, img_name=imgs_name[idx])
+
         # for idx, (im, conf_mask, pts) in enumerate(zip(imgs, confidence_masks, pts3d)):
         for idx, (im, conf_mask, pts) in enumerate(zip(filtered_pcd, filtered_confidence_masks, filtered_pts3d)):
             colors = im.reshape(-1, 3)
@@ -217,8 +228,6 @@ if __name__ == '__main__':
             
             refined_points = points[mask]
             refined_colors = colors[mask]
-            # refined_points = points
-            # refined_colors = colors
             
             if idx == 0:
                 total_points = refined_points
@@ -234,13 +243,24 @@ if __name__ == '__main__':
         pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=30))
         pcd.orient_normals_consistent_tangent_plane(k=10)
 
-        output_dir = os.path.join(source_path, data, "dust3r_test", "ply")
+        output_dir = os.path.join(dust3r_path, "ply")
         os.makedirs(output_dir, exist_ok=True)
         
         pcd = pcd.voxel_down_sample(voxel_size=0.0005)
         o3d.io.write_point_cloud(os.path.join(output_dir, "points3D.ply"), pcd)
         print("Saved points3D.ply to", output_dir)
-
+        print(f"Point Cloud num: {np.array(pcd.points).shape[0]}")        
+        
+        poisson_mesh_pipeline(pcd, os.path.join(output_dir, "poisson_mesh_depth_10.ply"))
+        
+        if dataset == 'llff':
+            save_cams(dust3r_path, poses, focals, imgs_name, [512/2, 384/2], 504, 378)
+        elif dataset == 'dtu':
+            save_cams(dust3r_path, poses, focals, imgs_name, [512/2, 384/2], 400, 300)
+        
+        print(f"[INFO] Processing {data} Done.")
+        print("=" * 100  + "\n")
+        
         # with open("dtu_82.pkl", "wb") as f:
         #     print(f"File object: {f}")  # 파일 객체 확인 
         #     pickle.dump({
@@ -253,10 +273,3 @@ if __name__ == '__main__':
         #         "points": np.array(pcd.points),
         #         "colors": np.array(pcd.colors)
         #     }, f)
-            
-        # print("done")
-        # print(f"Point Cloud num: {np.array(pcd.points).shape[0]}")
-        
-        poisson_mesh_pipeline(pcd, os.path.join(output_dir, "poisson_mesh_depth_10.ply"))
-        
-        save_cams(os.path.join(source_path, data, "dust3r_test"), poses, focals, imgs_name, [512/2, 384/2], 400, 300)
