@@ -15,6 +15,7 @@ dependencies:
   - matplotlib
   - scipy
   - tensorboard
+  - lpips
   - pip:
       - joblib
       - opencv-python
