@@ -39,9 +39,8 @@ class Scene:
 
         self.train_cameras = {}
         self.test_cameras = {}
-
         if os.path.exists(os.path.join(args.source_path, "dust3r")):
-            scene_info = sceneLoadTypeCallbacks["DUST3R"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp, 8, args.dataset, args.input_views, args.dtu_mask_path, args.novelTrain)
+            scene_info = sceneLoadTypeCallbacks["DUST3R"](args.source_path, args.images, args.depths, args.eval, 8, args.dataset, args.input_views, args.dtu_mask_path, args.novelTrain)
         elif os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
@@ -72,9 +71,9 @@ class Scene:
 
         for resolution_scale in resolution_scales:
             print("Loading Training Cameras")
-            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args, scene_info.is_nerf_synthetic, False)
+            self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args)
             print("Loading Test Cameras")
-            self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args, scene_info.is_nerf_synthetic, True)
+            self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args)
 
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,

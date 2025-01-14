@@ -14,7 +14,7 @@ if __name__ == '__main__':
     
     # Install 3D Gaussian Splatting rasterizer
     print("[INFO] Installing the 3D Gaussian Splatting rasterizer...")
-    os.chdir("gaussian_splatting/submodules/diff-gaussian-rasterization/")
+    os.chdir("gaussian-splatting/submodules/diff-gaussian-rasterization/")
     os.system("conda run -n mpgs pip install -e .")
     print("[INFO] 3D Gaussian Splatting rasterizer installed.")
     

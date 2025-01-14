@@ -54,7 +54,7 @@ class SceneInfo(NamedTuple):
     test_cameras: list
     nerf_normalization: dict
     ply_path: str
-    is_nerf_synthetic: bool
+    # is_nerf_synthetic: bool
 
 def fetchPly_scale(path, scale):
     plydata = PlyData.read(path)
@@ -549,18 +549,20 @@ def readCamerasFromDUST3Rtest(img_path, cam_path, white_background, extension=".
     return cam_infos
 
 # depths (images, eval 사이), train_test_exp는 사용 x
-def readDUST3RInfo(path, images, eval, llffhold=8, dataset='DTU', input_n=3, dtu_mask_path=None, novelTrainView=False, extension=".jpg", white_background=False): 
+def readDUST3RInfo(path, images, depths, eval, llffhold=8, dataset='DTU', input_n=3, dtu_mask_path=None, novelTrainView=False, extension=".jpg", white_background=False): 
     scale = 1  # dust3r scale is too small, 3dgs SIBR viewer cannot see, so we scale 100
     
+    images = "images" if images == None else images
+    depths = "depths" if depths == None else depths
     dust_dir = os.path.join(path, "dust3r_test")
     load_fg_mask = True if dataset=='DTU' else False
     
     # TODO: depths 처리 방식 => image처럼 경로로 읽어서 저장?
     
-    if os.path.exists(os.path.join(dust_dir, "cams")) and os.path.exists(os.path.join(path, "images")) and os.path.exists(os.path.join(dust_dir, "depths")):
+    if os.path.exists(os.path.join(dust_dir, "cams")) and os.path.exists(os.path.join(path, images)) and os.path.exists(os.path.join(dust_dir, depths)):
         cams_folder = os.path.join(dust_dir, "cams")
-        images_folder = os.path.join(path, "images")
-        depths_folder = os.path.join(dust_dir, "depths")
+        images_folder = os.path.join(path, images)
+        depths_folder = os.path.join(dust_dir, depths)
     else:
         raise Exception("Error message: no cams folder exits")    
     all_cam_infos = readCamerasFromDUST3R(images_folder, cams_folder, depths_folder, load_fg_mask, dtu_mask_path, scale)
@@ -586,6 +588,8 @@ def readDUST3RInfo(path, images, eval, llffhold=8, dataset='DTU', input_n=3, dtu
                 train_cam_infos = [c for idx, c in enumerate(train_cam_infos) if idx in idx_sub]
                 print(f"Train image name : {[c.image_name for c in train_cam_infos]}")
             test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+    else:
+        train_cam_infos = cam_infos
     
     if novelTrainView:
         print('NovelTrainView!!!')

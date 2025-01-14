@@ -402,6 +402,7 @@ if __name__ == "__main__":
         args.source_path = f"/home/airlabs/Dataset/LLFF/llff_8/{target}"
     elif args.dataset == "DTU":
         args.source_path = f"/home/airlabs/Dataset/DTU/dtu_4/{target}"
+    args.eval = True
     args.novelTrain = True
     # args.iterations = 15_000
     args.model_path = f"output/{args.dataset}/{target}_vanila"

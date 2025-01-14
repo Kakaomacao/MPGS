@@ -6,15 +6,10 @@
 *.cmake
 
 # gaussian_splatting
-/gaussian_splatting/data
-/gaussian_splatting/output
-/gaussian_splatting/submodules
-
 /gaussian-splatting/SIBR_viewers
 /gaussian-splatting/assets
 /gaussian-splatting/data
 /gaussian-splatting/output
-/gaussian-splatting/submodules
 
 /# Byte-compiled / optimized / DLL files
 __pycache__/
