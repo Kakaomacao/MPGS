@@ -12,26 +12,26 @@ dependencies:
   - tqdm
   - scikit-image
   - scikit-learn
-  - matplotlib
+  - matplotlib=3.8.3
   - scipy
   - tensorboard
-  - lpips
   - pip:
       - joblib
-      - opencv-python
+      - opencv-python==4.9.0.80
       - open3d==0.18.0
       - plyfile==1.1
-      - gradio
+      - gradio==5.9.0
       - einops
       - trimesh
       - pyglet<2
       - huggingface_hub[torch]>=0.22
       - roma
+      - lpips
       # Optional
-      - pillow-heif # for HEIF/HEIC image support
-      - pyrender # for rendering depths in ScanNet++
-      - kapture # for visloc data loading
-      - kapture-localization
-      - numpy-quaternion
-      - pycolmap # for PnP
-      - poselib # for PnP
+      # - pillow-heif # for HEIF/HEIC image support
+      # - pyrender # for rendering depths in ScanNet++
+      # - kapture # for visloc data loading
+      # - kapture-localization
+      # - numpy-quaternion
+      # - pycolmap # for PnP
+      # - poselib # for PnP
