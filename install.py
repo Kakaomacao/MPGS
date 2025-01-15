@@ -25,6 +25,13 @@ if __name__ == '__main__':
     print("[INFO] simple-knn installed.")
     os.chdir("../../../")
     
+    # Install fused-ssim
+    print("[INFO] Installing fused-ssim...")
+    os.chdir("gaussian-splatting/submodules/fused-ssim/")
+    os.system("conda run -n mpgs pip install -e .")
+    print("[INFO] simple-knn installed.")
+    os.chdir("../../../")
+    
     # Install Nvdiffrast
     if args.no_nvdiffrast:
         print("[INFO] Skipping installation of Nvdiffrast.")
