@@ -548,12 +548,12 @@ def readDUST3RInfo(path, images, depths, eval, llffhold=8, dataset='DTU', input_
     
     images = "images" if images == None else images
     depths = "depths" if depths == None else depths
-    dust_dir = os.path.join(path, "dust3r_test")
+    dust_dir = os.path.join(path, "dust3r")
     load_fg_mask = True if dataset=='DTU' else False
     
-    if os.path.exists(os.path.join(dust_dir, "cams")) and os.path.exists(os.path.join(path, images)) and os.path.exists(os.path.join(dust_dir, depths)):
+    if os.path.exists(os.path.join(dust_dir, "cams")) and os.path.exists(os.path.join(dust_dir, images)) and os.path.exists(os.path.join(dust_dir, depths)):
         cams_folder = os.path.join(dust_dir, "cams")
-        images_folder = os.path.join(path, images)
+        images_folder = os.path.join(dust_dir, images)
         depths_folder = os.path.join(dust_dir, depths)
     else:
         raise Exception("Error message: no cams folder exits")    
@@ -585,9 +585,9 @@ def readDUST3RInfo(path, images, depths, eval, llffhold=8, dataset='DTU', input_
     
     if novelTrainView:
         print('NovelTrainView!!!')
-        json_path = os.path.join(path, "novel_views", "new_cameras.json")
         novel_path = os.path.join(path, "novel_views")
-        new_cam_infos = readJsonCamerasDUST3R(json_path, images_folder=novel_path, scale=scale)
+        json_file = os.path.join(novel_path, "cams_novelTrainView.json")
+        new_cam_infos = readJsonCamerasDUST3R(json_file, images_folder=novel_path, scale=scale)
         train_cam_infos += new_cam_infos
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
@@ -595,8 +595,7 @@ def readDUST3RInfo(path, images, depths, eval, llffhold=8, dataset='DTU', input_
     if novelTrainView:
         ply_path = os.path.join(path, "novel_views","sampled_points_300000.ply")
     else:
-        # ply_path = os.path.join(path,"sparse/0", "points3D.ply")
-        ply_path = os.path.join(path, "dust3r_test", "ply", "points3D.ply")
+        ply_path = os.path.join(dust_dir, "ply", "points3D.ply")
         
 
     try:

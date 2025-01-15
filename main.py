@@ -5,20 +5,13 @@ from mast3r.model import AsymmetricMASt3R
 from dust3r.utils.image import load_images
 from dust3r.image_pairs import make_pairs
 from dust3r.cloud_opt import global_aligner, GlobalAlignerMode
-# import dust3r.my_demo as demo
 import cv2
 import os
 import numpy as np
 import torch
+import shutil
 from dust3r.utils.device import to_numpy
-from plyfile import PlyData, PlyElement
-
-from PIL import Image
-from tqdm import tqdm
 import open3d as o3d
-import glob
-import matplotlib.pyplot as plt
-import pickle
 
 
 def poisson_mesh_pipeline(pcd, output_mesh_path):
@@ -154,6 +147,9 @@ if __name__ == '__main__':
         source_path = "/home/airlabs/Dataset/DTU/dtu_4/"
     elif dataset == 'llff':
         source_path = "/home/airlabs/Dataset/LLFF/llff_8/"   
+    
+    output_root_path ="./data"
+    os.makedirs(output_root_path, exist_ok=True)
 
     model_name = "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
     # you can put the path to a local checkpoint in model_name if needed
@@ -163,11 +159,23 @@ if __name__ == '__main__':
     for data in sorted(os.listdir(source_path)):
         print("=" * 100)
         print(f"[INFO] Processing {data} ...")
-        dust3r_path = os.path.join(source_path, data, "dust3r_test")
+        dust3r_path = os.path.join(output_root_path, dataset, data, "dust3r")
         os.makedirs(dust3r_path, exist_ok=True)
         
         img_path = os.path.join(source_path, data, "images")
         img_list = sorted(os.listdir(img_path))
+        
+        images_dest_path = os.path.join(dust3r_path, "images")
+        os.makedirs(images_dest_path, exist_ok=True)
+
+        # 이미지 파일들을 "images" 폴더로 복사
+        for img_file in img_list:
+            src_file = os.path.join(img_path, img_file)  # 원본 이미지 파일 경로
+            dst_file = os.path.join(images_dest_path, img_file)  # 복사할 목적지 파일 경로
+            
+            # 파일 복사
+            shutil.copy(src_file, dst_file)
+        
         train_img = [os.path.join(img_path, im) for idx, im in enumerate(img_list)]
 
         if dataset == 'llff':

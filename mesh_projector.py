@@ -19,10 +19,10 @@ def main():
     
     # 소스 설정
     if dataset_type == "DTU":
-        source_root = f"/home/airlabs/Dataset/DTU/dtu_4" 
+        source_root = f"./data/dtu" 
     elif dataset_type == "LLFF":
-        source_root = f"/home/airlabs/Dataset/LLFF/llff_8"
-
+        source_root = f"./data/llff"
+    
     # 각 children 폴더에 대해 처리
     for target_data in tqdm(os.listdir(source_root), desc=f"Processing {dataset_type} with {framework}", position=0, leave=True):
         target_dir_path = os.path.join(source_root, target_data)
@@ -56,15 +56,13 @@ def main():
                 print(f"Warning: No desired images specified for {target_data}")
         
         # 경로 설정 (원하는 경로로 변경)
-        target_dir = os.path.join(target_dir_path, "dust3r_test")
+        target_dir = os.path.join(target_dir_path, "dust3r")
         input3_mesh_dir = os.path.join(target_dir, "ply", "poisson_mesh_depth_10.ply")
         cameras_path = os.path.join(target_dir, "cams")
-        scaled_cams_path = os.path.join(target_dir, "scaled_cams")
         output_dir = os.path.join(target_dir_path, "novel_views")
         
         # 필요한 디렉토리 생성 (존재하지 않을 경우)
         os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(scaled_cams_path, exist_ok=True)
         
         # 메쉬 파일 로드
         mesh = o3d.io.read_triangle_mesh(input3_mesh_dir)
@@ -98,7 +96,7 @@ def main():
         o3d.io.write_point_cloud(os.path.join(output_dir, f"sampled_points_{n}.ply"), pcd)
         print(f"Sampled points saved to: {os.path.join(output_dir, f'sampled_points_{n}.ply')}")
 
-        save_cams_convert_W2CtoC2W(cameras_data, scaled_cams_path)
+        # save_cams_convert_W2CtoC2W(cameras_data, scaled_cams_path)
 
         selected_cameras_data = [cam for cam in cameras_data
         if any(cam['img_name'].endswith(name) for name in train_image_names)]
@@ -593,7 +591,7 @@ def save_transposed_extrinsics(new_cameras_data, output_dir):
         camera["extrinsic"] = transposed_extrinsic.tolist()  # Transposed extrinsic을 다시 리스트로 변환
 
     # Save the modified data as JSON
-    with open(os.path.join(output_dir, "new_cameras.json"), 'w') as f:
+    with open(os.path.join(output_dir, "cams_novelTrainView.json"), 'w') as f:
         json.dump(new_cameras_data, f, indent=4)
 
 # -----------------------------------------------------------------------

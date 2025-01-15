@@ -257,7 +257,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         Ll1depth_pure = 0.0
         if depth_l1_weight(iteration) > 0 :
             invDepth = render_pkg["depth"]
-            if viewpoint_cam.mask is not None:
+            if viewpoint_cam.nv_mask is not None:
                 invDepth = invDepth * viewpoint_cam.nv_mask
                 depth = viewpoint_cam.depth * viewpoint_cam.nv_mask
             else:
@@ -408,16 +408,14 @@ if __name__ == "__main__":
     safe_state(args.quiet)
 
     target = "scan38"
-    # args.start_checkpoint = f"/home/airlabs/SuGaR/output/vanilla_gs/{target}/chkpnt7000.pth"
     args.dataset = "DTU"
-    
-    if args.dataset == "LLFF":
-        args.source_path = f"/home/airlabs/Dataset/LLFF/llff_8/{target}"
-    elif args.dataset == "DTU":
-        args.source_path = f"/home/airlabs/Dataset/DTU/dtu_4/{target}"
     args.eval = True
     args.novelTrain = True
-    # args.iterations = 15_000
+    
+    if args.dataset == "LLFF":
+        args.source_path = f"/data/{args.dataset}/{target}"
+    elif args.dataset == "DTU":
+        args.source_path = f"/data/{args.dataset}/{target}"
     # args.model_path = f"output/{args.dataset}/{target}_vanila"
 
     # Start GUI server, configure and run training
