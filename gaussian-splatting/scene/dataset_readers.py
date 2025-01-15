@@ -551,8 +551,6 @@ def readDUST3RInfo(path, images, depths, eval, llffhold=8, dataset='DTU', input_
     dust_dir = os.path.join(path, "dust3r_test")
     load_fg_mask = True if dataset=='DTU' else False
     
-    # TODO: depths 처리 방식 => image처럼 경로로 읽어서 저장?
-    
     if os.path.exists(os.path.join(dust_dir, "cams")) and os.path.exists(os.path.join(path, images)) and os.path.exists(os.path.join(dust_dir, depths)):
         cams_folder = os.path.join(dust_dir, "cams")
         images_folder = os.path.join(path, images)

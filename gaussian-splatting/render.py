@@ -84,13 +84,13 @@ if __name__ == "__main__":
     
     args.dataset = "DTU"
     args.source_path = "/home/airlabs/Dataset/DTU/dtu_4/scan38"
-    args.model_path = "/home/airlabs/MPGS/output/236cfc08-6"
+    # args.model_path = "/home/airlabs/MPGS/output/236cfc08-6"
     args.sh_degree = 3
     args.images = "images"
     args.depths = "depths"
     args.data_device = "cuda"
     args.eval = True
-    args.novelTrain = False
+    args.novelTrain = True
     args.input_views = 3
     args.white_background = False
 

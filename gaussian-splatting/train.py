@@ -231,7 +231,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
-        Ll1 = l1_loss(image, gt_image)
+        
+        if viewpoint_cam.nv_mask is not None:
+            mask = torch.from_numpy(viewpoint_cam.nv_mask).to("cuda").bool()
+            Ll1 = l1_loss(image, gt_image, mask)
+        else:
+            Ll1 = l1_loss(image, gt_image)
+            
         if FUSED_SSIM_AVAILABLE:
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
         else:
@@ -251,20 +257,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         Ll1depth_pure = 0.0
         if depth_l1_weight(iteration) > 0 :
             invDepth = render_pkg["depth"]
-            depth = viewpoint_cam.depth
+            if viewpoint_cam.mask is not None:
+                invDepth = invDepth * viewpoint_cam.nv_mask
+                depth = viewpoint_cam.depth * viewpoint_cam.nv_mask
+            else:
+                depth = viewpoint_cam.depth
 
-            invDepth_inv = 1.0 / invDepth
-            normalized_invDepth = (invDepth - invDepth.min()) / (invDepth.max() - invDepth.min())
-            normalized_depth = (depth - depth.min()) / (depth.max() - depth.min())
-            # Ll1depth_pure = torch.abs((invDepth  - mono_invdepth) * depth_mask).mean()
-            # Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
-            # loss += Ll1depth
-            # Ll1depth = Ll1depth.item()
+            depth_reciprocal = torch.from_numpy(np.reciprocal(depth)).cuda()
+            Ll1depth_pure = torch.abs(invDepth  - depth_reciprocal).mean()
+            Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
+            loss += Ll1depth
+            Ll1depth = Ll1depth.item()
         else:
             Ll1depth = 0
-            
-        if iteration == 2000:
-            print("2000!!!")
 
         loss.backward()
 
@@ -273,7 +278,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            # ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
+            ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
 
             if iteration % 10 == 0:
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
