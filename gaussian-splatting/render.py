@@ -83,7 +83,7 @@ if __name__ == "__main__":
     # args.model_path = "/home/airlabs/MPGS/output/LLFF/leaves_vanila"
     
     args.dataset = "DTU"
-    args.source_path = "/home/airlabs/Dataset/DTU/dtu_4/scan38"
+    args.source_path = "./data/dtu/scan38"
     # args.model_path = "/home/airlabs/MPGS/output/236cfc08-6"
     args.sh_degree = 3
     args.images = "images"

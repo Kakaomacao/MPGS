@@ -64,6 +64,11 @@ def main():
         # 필요한 디렉토리 생성 (존재하지 않을 경우)
         os.makedirs(output_dir, exist_ok=True)
         
+        pcd = o3d.io.read_point_cloud(os.path.join(target_dir, "ply", "points3D.ply"))
+        points = np.asarray(pcd.points)
+        colors = np.asarray(pcd.colors)
+        normals = np.asarray(pcd.normals)
+        
         # 메쉬 파일 로드
         mesh = o3d.io.read_triangle_mesh(input3_mesh_dir)
         vertices = np.asarray(mesh.vertices)
@@ -117,11 +122,18 @@ def main():
 
             # W2C
             p_m, n_m, c_m, mask = world2Camera(w2c, k, vertices, normals_m, colors_m, camera_info['img_name'], framework)
+            pp, nn, cc, mask2 = world2Camera(w2c, k, points, normals, colors, camera_info['img_name'], framework)
             
             # 필터링된 정점 기반으로 새로운 mesh 생성
             filtered_vertices = p_m
             filtered_normals = n_m
             filtered_colors = c_m
+            
+            # 필터링된 pcd 생성
+            pcd_c = o3d.geometry.PointCloud()
+            pcd_c.points = o3d.utility.Vector3dVector(pp)
+            pcd_c.colors = o3d.utility.Vector3dVector(cc)
+            pcd_c.normals = o3d.utility.Vector3dVector(nn)
 
             # 필터링된 메쉬 생성
             mesh_c = o3d.geometry.TriangleMesh()
@@ -131,7 +143,8 @@ def main():
             mesh_c.triangles = o3d.utility.Vector3iVector(triangles)
 
             background = np.full((height, width, 3), (255, 255, 255), dtype=np.uint8)
-            projected_mesh, mask = project_and_draw_mesh(mesh_c, k, background)
+            projected_point, mask_pcd = project_and_draw_pcd(pcd_c, k, background)
+            projected_mesh, mask = project_and_draw_mesh(mesh_c, k, projected_point)
             depth_img, depth_max, depth_min = mesh_depth(mesh, w2c, k, width, height)
 
             masked_img = np.zeros_like(projected_mesh)
@@ -221,6 +234,48 @@ def world2Camera(extrinsicParameter, intrinsicParameter, points, normals, colors
     frustum_mask = in_depth_range & in_horizontal_fov & in_vertical_fov
     
     return transformed_points, transformed_normals, colors, frustum_mask
+
+
+def project_and_draw_pcd(pcd, intrinsic, image):
+    # 메쉬 정점과 삼각형 가져오기
+    points = np.asarray(pcd.points)  # N x 3
+    colors = np.asarray(pcd.colors)  # M x 3 (각 행이 정점 인덱스를 가짐)
+
+    # 메쉬 정점 카메라 좌표에서 2D 이미지 좌표로 투영
+    projected_points = np.dot(intrinsic, points.T).T
+    # w'에 해당하는 Z좌표로 나눠서 (u, v)로 만듦
+    projected_points[:, 0] /= projected_points[:, 2]  # u' / z'
+    projected_points[:, 1] /= projected_points[:, 2]  # v' / z'
+    # (u, v)만 필요
+    projected_points_2d = projected_points[:, :2]     # shape: (N, 2)
+
+    # (3) 원본 이미지를 복사해 작업
+    projected_image = image.copy()
+    h, w = projected_image.shape[:2]
+    
+    mask = np.zeros((h, w), dtype=np.uint8)
+
+    # (5) 각 점에 대해 2D 좌표가 이미지 범위 내라면 색상 찍기
+    for i in range(len(points)):
+        u, v = projected_points_2d[i]
+        # 화면 좌표가 float이므로 int로 변환
+        u = int(round(u))
+        v = int(round(v))
+
+        # 이미지 범위를 벗어나지 않는 경우에만 픽셀을 찍음
+        if 0 <= u < w and 0 <= v < h:
+            # colors[i]는 [r, g, b] 범위: [0,1]
+            # OpenCV는 (b, g, r) 순서, 또 0~255 범위로 변환 필요
+            color_bgr = (colors[i][::-1] * 255).astype(np.uint8)
+            color_bgr = tuple(map(int, color_bgr))
+
+            # 점을 찍거나 작은 원으로 표시 (반경=2, 두께=-1이면 꽉 찬 원)
+            cv2.circle(projected_image, (u, v), 1, color_bgr, -1)
+
+            # mask에 표시
+            mask[v, u] = 1
+
+    return projected_image, mask
 
 
 def project_and_draw_mesh(mesh, intrinsic, image):

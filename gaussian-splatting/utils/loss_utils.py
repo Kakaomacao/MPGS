@@ -43,7 +43,7 @@ def l1_loss(network_output, gt, mask=None):
             # raise ValueError(f"Mask shape {mask.shape} does not match network output shape {network_output.shape}.")
         # mask = mask.bool().cuda()
         # return torch.abs(network_output[mask] - gt[mask]).mean()
-        return torch.abs(network_output * mask - gt * mask).mean()
+        return torch.abs(network_output[mask] - gt[mask]).mean()
     else:
         return torch.abs(network_output - gt).mean()
 def l2_loss(network_output, gt):

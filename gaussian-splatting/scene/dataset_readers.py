@@ -386,8 +386,8 @@ def readJsonCamerasDUST3R(json_path, images_folder, scale=50):
 
         nv_mask = None
         mask_name = "mask_" + cam["img_name"] + ".png"
-        if os.path.exists(os.path.join(images_folder, mask_name)):
-            mask_file = os.path.join(images_folder, mask_name)
+        if os.path.exists(os.path.join(images_folder, "masks", mask_name)):
+            mask_file = os.path.join(images_folder, "masks",mask_name)
             nv_mask = (cv2.imread(mask_file, 0))
             nv_mask = (nv_mask != 0)
         
@@ -463,7 +463,7 @@ def readCamerasFromDUST3R(img_path, cam_path, depth_path, load_fg_mask=False, dt
         # DTU foreground mask Load
         dtu_mask = None
         if load_fg_mask:
-            scene_name = image_path.split('/')[-3]
+            scene_name = image_path.split('/')[-4]
             idx = int(image_name.split('_')[1]) - 1
             dtu_mask_file = os.path.join(dtu_mask_path, scene_name, f'{idx:03d}.png')
             if not os.path.exists(dtu_mask_file):

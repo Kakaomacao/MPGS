@@ -234,7 +234,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         if viewpoint_cam.nv_mask is not None:
             mask = torch.from_numpy(viewpoint_cam.nv_mask).to("cuda").bool()
-            Ll1 = l1_loss(image, gt_image, mask)
+            mask_3d = mask.unsqueeze(0)
+            mask_3d = mask_3d.repeat(3, 1, 1)
+            Ll1 = l1_loss(image, gt_image, mask_3d)
         else:
             Ll1 = l1_loss(image, gt_image)
             
@@ -258,12 +260,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if depth_l1_weight(iteration) > 0 :
             invDepth = render_pkg["depth"]
             if viewpoint_cam.nv_mask is not None:
-                invDepth = invDepth * viewpoint_cam.nv_mask
-                depth = viewpoint_cam.depth * viewpoint_cam.nv_mask
+                invDepth = invDepth * mask
+                depth = torch.from_numpy(viewpoint_cam.depth).cuda() * mask
             else:
-                depth = viewpoint_cam.depth
+                depth = torch.from_numpy(viewpoint_cam.depth).cuda()
 
-            depth_reciprocal = torch.from_numpy(np.reciprocal(depth)).cuda()
+            depth_reciprocal = torch.reciprocal(depth).cuda()
             Ll1depth_pure = torch.abs(invDepth  - depth_reciprocal).mean()
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
             loss += Ll1depth
@@ -416,7 +418,7 @@ if __name__ == "__main__":
         args.source_path = f"./data/llff/{target}"
     elif args.dataset == "DTU":
         args.source_path = f"./data/dtu/{target}"
-    args.model_path = f"output/{args.dataset}/{target}_weighted"
+    args.model_path = f"output/{args.dataset}/{target}_pcd_mesh_novel"
 
     # Start GUI server, configure and run training
     if not args.disable_viewer:
