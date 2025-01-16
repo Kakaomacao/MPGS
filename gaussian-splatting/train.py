@@ -413,10 +413,10 @@ if __name__ == "__main__":
     args.novelTrain = True
     
     if args.dataset == "LLFF":
-        args.source_path = f"/data/{args.dataset}/{target}"
+        args.source_path = f"./data/llff/{target}"
     elif args.dataset == "DTU":
-        args.source_path = f"/data/{args.dataset}/{target}"
-    # args.model_path = f"output/{args.dataset}/{target}_vanila"
+        args.source_path = f"./data/dtu/{target}"
+    args.model_path = f"output/{args.dataset}/{target}_weighted"
 
     # Start GUI server, configure and run training
     if not args.disable_viewer:
