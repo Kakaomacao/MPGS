@@ -92,7 +92,6 @@ def main():
         pcd.points = o3d.utility.Vector3dVector(np.array(sampled_points.points))
         pcd.colors = sampled_points.colors
         pcd.normals = sampled_points.normals
-        # o3d.visualization.draw_geometries([pcd])
         o3d.io.write_point_cloud(os.path.join(output_dir, f"sampled_points_{n}.ply"), pcd)
         print(f"Sampled points saved to: {os.path.join(output_dir, f'sampled_points_{n}.ply')}")
 
@@ -280,6 +279,8 @@ def project_and_draw_mesh(mesh, intrinsic, image):
 
 
 def mesh_depth(mesh, extrinsic, intrinsic, width, height):
+    o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Warning)
+    
     ext = np.array(extrinsic)
     R = ext[:3, :3]
     t = ext[:3, 3]
@@ -290,11 +291,6 @@ def mesh_depth(mesh, extrinsic, intrinsic, width, height):
     eye = t_C2W
     center = eye + R_C2W[:, 2]
     up = -R_C2W[:, 1]
-    
-    print("Eye (Camera Position):", eye)
-    print("Center (Look At):", center)
-    print("Up (Up Direction):", up)
-    print("Intrinsic Matrix:\n", intrinsic)
     
     renderer = None
     renderer = o3d.visualization.rendering.OffscreenRenderer(width, height)
@@ -315,8 +311,6 @@ def mesh_depth(mesh, extrinsic, intrinsic, width, height):
     
     depth_image = renderer.render_to_depth_image()
     depth_array = np.asarray(depth_image)
-    
-    print("Raw Depth Array (Min, Max):", np.min(depth_array), np.max(depth_array))
     
     original_max = np.max(depth_array)
     original_min = np.min(depth_array)
