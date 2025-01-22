@@ -1,4 +1,3 @@
-import torch
 import math
 import numpy as np
 import open3d as o3d
@@ -10,6 +9,7 @@ from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
 import copy
 
+o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 
 def main():
     # 설정!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -93,11 +93,11 @@ def main():
         # Poisson Disk Sampling 후 저장
         print("Poison Disk Sampling...")
         sampled_points = mesh.sample_points_poisson_disk(number_of_points=n)
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(np.array(sampled_points.points))
-        pcd.colors = sampled_points.colors
-        pcd.normals = sampled_points.normals
-        o3d.io.write_point_cloud(os.path.join(output_dir, f"sampled_points_{n}.ply"), pcd)
+        pcd_sampled = o3d.geometry.PointCloud()
+        pcd_sampled.points = o3d.utility.Vector3dVector(np.array(sampled_points.points))
+        pcd_sampled.colors = sampled_points.colors
+        pcd_sampled.normals = sampled_points.normals
+        o3d.io.write_point_cloud(os.path.join(output_dir, f"sampled_points_{n}.ply"), pcd_sampled)
         print(f"Sampled points saved to: {os.path.join(output_dir, f'sampled_points_{n}.ply')}")
 
         # save_cams_convert_W2CtoC2W(cameras_data, scaled_cams_path)
@@ -109,7 +109,7 @@ def main():
         num_intermediate = 2
         vertical_amplitude = 0.15
         extrapolation_factor = 0.1
-        num_vertical = 1
+        num_vertical = 2
         
         new_cameras_data, intersection_point = generate_varied_camera_data_with_sphere(selected_cameras_data, num_intermediate=num_intermediate, vertical_amplitude=vertical_amplitude, extrapolation_factor=extrapolation_factor, num_vertical=num_vertical)
         
@@ -145,10 +145,14 @@ def main():
             background = np.full((height, width, 3), (255, 255, 255), dtype=np.uint8)
             projected_point, mask_pcd = project_and_draw_pcd(pcd_c, k, background)
             projected_mesh, mask = project_and_draw_mesh(mesh_c, k, projected_point)
-            depth_img, depth_max, depth_min = mesh_depth(mesh, w2c, k, width, height)
+            depth_img, depth_max, depth_min = render_depth(mesh, pcd, w2c, k, width, height)
 
+            # mask와 mask_pcd 중 하나라도 != 1인 경우를 고려
+            invalid_mask = np.logical_or(mask != 1, mask_pcd == 1)
+
+            # masked_img 생성
             masked_img = np.zeros_like(projected_mesh)
-            masked_img[mask != 1] = (255, 255, 255)
+            masked_img[invalid_mask] = (255, 255, 255)
 
             image_name = camera_info['img_name']
             novel_view_path = os.path.join(output_dir, "images")
@@ -333,9 +337,7 @@ def project_and_draw_mesh(mesh, intrinsic, image):
     return projected_image, mask
 
 
-def mesh_depth(mesh, extrinsic, intrinsic, width, height):
-    o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Warning)
-    
+def render_depth(mesh, pcd, extrinsic, intrinsic, width, height):    
     ext = np.array(extrinsic)
     R = ext[:3, :3]
     t = ext[:3, 3]
@@ -351,8 +353,10 @@ def mesh_depth(mesh, extrinsic, intrinsic, width, height):
     renderer = o3d.visualization.rendering.OffscreenRenderer(width, height)
     
     renderer.scene.remove_geometry("mesh")  # 기존 메쉬 제거
+    renderer.scene.remove_geometry("pcd")  # 기존 포인트 클라우드 제거
     material = o3d.visualization.rendering.MaterialRecord()
     renderer.scene.add_geometry("mesh", mesh, material)
+    renderer.scene.add_geometry("pcd", pcd, material)
     
     renderer.scene.camera.set_projection(
         intrinsics=intrinsic,

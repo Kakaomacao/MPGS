@@ -162,7 +162,7 @@ if __name__ == '__main__':
         dust3r_path = os.path.join(output_root_path, dataset, data, "dust3r")
         os.makedirs(dust3r_path, exist_ok=True)
         
-        img_path = os.path.join(source_path, data, "images")
+        img_path = os.path.join(source_path, data)
         img_list = sorted(os.listdir(img_path))
         
         images_dest_path = os.path.join(dust3r_path, "images")
@@ -254,6 +254,16 @@ if __name__ == '__main__':
         pcd.points = o3d.utility.Vector3dVector(total_points)
         pcd.colors = o3d.utility.Vector3dVector(total_colors)
         
+        pcd_single = o3d.geometry.PointCloud()
+        
+        mask_single = confidence_masks[train_img_idxs[0]].reshape(-1).detach().cpu().numpy()
+        points_single = pts3d[train_img_idxs[0]].reshape(-1, 3).detach().cpu().numpy()
+        colors_single = imgs[train_img_idxs[0]].reshape(-1, 3)
+        
+        pcd_single.points = o3d.utility.Vector3dVector(points_single[mask_single])
+        pcd_single.colors = o3d.utility.Vector3dVector(colors_single[mask_single])
+        pcd_single.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=30))
+        
         # Compute normals
         pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.01, max_nn=30))
         pcd.orient_normals_consistent_tangent_plane(k=10)
@@ -266,7 +276,7 @@ if __name__ == '__main__':
         print("Saved points3D.ply to", output_dir)
         print(f"Point Cloud num: {np.array(pcd.points).shape[0]}")        
         
-        poisson_mesh_pipeline(pcd, os.path.join(output_dir, "poisson_mesh_depth_10.ply"))
+        poisson_mesh_pipeline(pcd_single, os.path.join(output_dir, "poisson_mesh_depth_10.ply"))
         
         if dataset == 'llff':
             save_cams(dust3r_path, poses, focals, imgs_name, [512/2, 384/2], 504, 378)
