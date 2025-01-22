@@ -47,7 +47,8 @@ try:
 except:
     SPARSE_ADAM_AVAILABLE = False
 
-    
+from gaussian_grad_switcher import get_grad_switched_gaussians
+
 # def show_plot(image):
 #     if isinstance(image, torch.Tensor):
 #         image= image.squeeze()    
@@ -222,7 +223,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
+        render_pkg, rasterizer = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE, is_return_rasterizer=True)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         if viewpoint_cam.alpha_mask is not None:
@@ -250,21 +251,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Isotropic loss from MonoGS
         # scaling = gaussians.get_scaling
         # isotropic_loss = torch.abs(scaling - scaling.mean(dim=1).view(-1, 1))
-        # loss2 = 10 * isotropic_loss.mean()
-        
-        # total_loss = 0.9 * loss + 0.1 * loss2
-        # total_loss.backward() 
+        # loss += isotropic_loss.mean()
         
         # Depth regularization
         Ll1depth_pure = 0.0
         if depth_l1_weight(iteration) > 0 :
             invDepth = render_pkg["depth"]
             if viewpoint_cam.nv_mask is not None:
-                invDepth = invDepth * mask
-                depth = torch.from_numpy(viewpoint_cam.depth).cuda() * mask
+                invDepth = invDepth
+                depth = torch.from_numpy(viewpoint_cam.depth).cuda()
             else:
                 depth = torch.from_numpy(viewpoint_cam.depth).cuda()
 
+            depth = torch.clamp(depth, min=1e-8)
             depth_reciprocal = torch.reciprocal(depth).cuda()
             Ll1depth_pure = torch.abs(invDepth  - depth_reciprocal).mean()
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
@@ -276,6 +275,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         loss.backward()
 
         iter_end.record()
+        
+        if viewpoint_cam.nv_mask is not None:
+            grad_mask = get_grad_switched_gaussians(gaussians, viewpoint_cam, rasterizer)
+
+            def mask_gradients(grad):
+                grad[grad_mask] = 0
+                return grad
+
+            # Gradient 수정에 Hook 사용
+            gaussians._xyz.register_hook(mask_gradients)
+            gaussians._features_dc.register_hook(mask_gradients)
+            gaussians._features_rest.register_hook(mask_gradients)
+            gaussians._scaling.register_hook(mask_gradients)
+            gaussians._rotation.register_hook(mask_gradients)
+            gaussians._opacity.register_hook(mask_gradients)
 
         with torch.no_grad():
             # Progress bar
@@ -419,6 +433,7 @@ if __name__ == "__main__":
     elif args.dataset == "DTU":
         args.source_path = f"./data/dtu/{target}"
     args.model_path = f"output/{args.dataset}/{target}_pcd_mesh_novel"
+    args.iteration = 20_000
 
     # Start GUI server, configure and run training
     if not args.disable_viewer:
