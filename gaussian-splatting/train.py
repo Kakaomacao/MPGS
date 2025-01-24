@@ -8,15 +8,13 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
-
-import matplotlib
-matplotlib.use('TkAgg')
+from mesh_point_dist import *
 
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render, network_gui
+from utils.loss_utils import l1_loss, patch_norm_mse_loss, patch_norm_mse_loss_global, ssim
+from gaussian_renderer import render, render_for_depth, render_for_opa, network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -49,20 +47,20 @@ except:
 
 from gaussian_grad_switcher import get_grad_switched_gaussians
 
-# def show_plot(image):
-#     if isinstance(image, torch.Tensor):
-#         image= image.squeeze()    
-#         if image.dim() == 3:
-#             if image.shape[0] == 3:
-#                 image = image.detach().cpu().numpy().transpose(1, 2, 0)
-#             else :
-#                 image = image.detach().cpu().numpy()
-#     if isinstance(image, np.ndarray):
-#         if image.shape[0] == 3:
-#             image = image.transpose(1, 2, 0)
+def show(image):
+    if isinstance(image, torch.Tensor):
+        image= image.squeeze()    
+        if image.dim() == 3:
+            if image.shape[0] == 3:
+                image = image.detach().cpu().numpy().transpose(1, 2, 0)
+            else :
+                image = image.detach().cpu().numpy()
+    if isinstance(image, np.ndarray):
+        if image.shape[0] == 3:
+            image = image.transpose(1, 2, 0)
     
-#     plt.imshow(image)
-#     plt.show()
+    plt.imshow(image)
+    plt.show()
     
 
 def create_camera_actor(scale=0.3, color=(1.0, 0.0, 0.0)):
@@ -156,9 +154,19 @@ def vis_gs(pc, cam=None, save=False, mask=None):
     o3d.visualization.draw_geometries([pcd])
 
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, prun_iters):
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
+
+    opt.iterations = 15000
+    pruning_iter = 3
+    novel_train_iter = 10000
+    mesh_scale = 1.0
+    mesh_path = f"/home/lsw/Dataset/DTU/dtu_4/{target}/dust3r_test/ply/poisson_mesh_depth_10.ply"
+    mesh_vertices_np, mesh_colors_np, mesh_normals_np = load_mesh(mesh_path, mesh_scale)
+    mesh_vertices = torch.tensor(mesh_vertices_np, device='cuda', dtype=torch.float32).contiguous()
+    mesh_colors = torch.tensor(mesh_colors_np, device='cuda', dtype=torch.float32).contiguous()
+    mesh_normals = torch.tensor(mesh_normals_np, device='cuda', dtype=torch.float32).contiguous()
 
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
@@ -176,12 +184,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_end = torch.cuda.Event(enable_timing = True)
 
     use_sparse_adam = opt.optimizer_type == "sparse_adam" and SPARSE_ADAM_AVAILABLE 
-    depth_l1_weight = get_expon_lr_func(opt.depth_l1_weight_init, opt.depth_l1_weight_final, max_steps=opt.iterations)
+    # depth_l1_weight = get_expon_lr_func(opt.depth_l1_weight_init, opt.depth_l1_weight_final, max_steps=opt.iterations)
 
     viewpoint_stack = scene.getTrainCameras().copy()
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
+
+    ema_loss_hard = 0.0
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -193,7 +203,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 net_image_bytes = None
                 custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                 if custom_cam != None:
-                    net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
+                    net_image = render(custom_cam, gaussians, pipe, background, scaling_modifer, False, None, False)["render"]
                     net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                 network_gui.send(net_image_bytes, dataset.source_path)
                 if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
@@ -223,7 +233,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        render_pkg, rasterizer = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE, is_return_rasterizer=True)
+        is_ret_rasterizer = True
+        render_pkg, rasterizer = render(viewpoint_cam, gaussians, pipe, bg,
+                             scaling_modifier = 1.0, separate_sh = False, override_color = None, is_ret_rasterizer=is_ret_rasterizer)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         if viewpoint_cam.alpha_mask is not None:
@@ -233,6 +245,117 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
         
+        # if viewpoint_cam.nv_mask is not None:
+        #     mask = torch.from_numpy(viewpoint_cam.nv_mask).to("cuda").bool()
+        #     mask_3d = mask.unsqueeze(0)
+        #     mask_3d = mask_3d.repeat(3, 1, 1)
+        #     Ll1 = l1_loss(image, gt_image, mask_3d)
+        # else:
+        #     Ll1 = l1_loss(image, gt_image)
+            
+        # if FUSED_SSIM_AVAILABLE:
+        #     ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+        # else:
+        #     ssim_value = ssim(image, gt_image)
+
+        # loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+
+#------------------from DNGaussian-----------------------------------------
+
+        bg_mask = None
+        if args.dataset == 'DTU':
+            if 'scan110' not in args.source_path:
+                bg_mask = (gt_image.max(0, keepdim=True).values < 30/255)
+            else:
+                bg_mask = (gt_image.max(0, keepdim=True).values < 15/255)
+            bg_mask_clone = bg_mask.clone()
+            for i in range(1, 50):
+                bg_mask[:, i:] *= bg_mask_clone[:, :-i]
+            gt_image[bg_mask.repeat(3,1,1)] = 0.
+
+        if args.dataset == 'DTU':
+            patch_range = (17, 53)
+        bg_mask = bg_mask
+
+# -------------------------------------------------- DEPTH --------------------------------------------
+        # -------------------------------------------------- hard --------------------------------------------
+        if iteration > opt.hard_depth_start:
+            render_pkg = render_for_depth(viewpoint_cam, gaussians, pipe, background)
+            depth = render_pkg["depth"]
+
+            # Depth loss
+            loss_hard = 0
+            depth_mono = torch.from_numpy(255.0 - viewpoint_cam.depth).to("cuda").unsqueeze(0)
+            if args.dataset == 'DTU':
+                depth_mono[bg_mask] = depth_mono[~bg_mask].mean()
+                depth[bg_mask] = depth[~bg_mask].mean().detach()
+
+
+            loss_l2_dpt = patch_norm_mse_loss(depth[None,...], depth_mono[None,...], randint(patch_range[0], patch_range[1]), opt.error_tolerance)
+            loss_hard += 0.1 * loss_l2_dpt
+
+            loss_global = patch_norm_mse_loss_global(depth[None,...], depth_mono[None,...], randint(patch_range[0], patch_range[1]), opt.error_tolerance)
+            loss_hard += 1 * loss_global
+
+            loss_hard.backward()
+
+            # Optimizer step
+            if iteration < opt.iterations:
+                gaussians.optimizer.step()
+                gaussians.optimizer.zero_grad(set_to_none = True)
+
+
+            # if iteration > opt.densify_from_iter:
+            #     gaussians.prune(opt.prune_threshold)
+
+
+        # -------------------------------------------------- soft --------------------------------------------
+        ema_loss_hard = 0.1 * (loss_hard.item()) + 0.9 * ema_loss_hard
+        if iteration > opt.soft_depth_start and ema_loss_hard < 0.1:
+            render_pkg = render_for_opa(viewpoint_cam, gaussians, pipe, background)
+            viewspace_point_tensor, visibility_filter = render_pkg["viewspace_points"], render_pkg["visibility_filter"]
+            depth, alpha = render_pkg["depth"], render_pkg["alpha"]
+
+            # Depth loss
+            loss_soft = 0
+            depth_mono = torch.from_numpy(255.0 - viewpoint_cam.depth).to("cuda").unsqueeze(0)
+
+            if args.dataset == 'DTU':
+                depth_mono[bg_mask] = depth_mono[~bg_mask].mean()
+                depth[bg_mask] = depth[~bg_mask].mean().detach()
+
+            loss_l2_dpt = patch_norm_mse_loss(depth[None,...], depth_mono[None,...], randint(patch_range[0], patch_range[1]), opt.error_tolerance)
+            loss_soft += 0.1 * loss_l2_dpt
+
+            loss_global = patch_norm_mse_loss_global(depth[None,...], depth_mono[None,...], randint(patch_range[0], patch_range[1]), opt.error_tolerance)
+            loss_soft += 1 * loss_global
+
+            loss_soft.backward()
+
+            # Optimizer step
+            if iteration < opt.iterations:
+                gaussians.optimizer.step()
+                gaussians.optimizer.zero_grad(set_to_none = True)
+        
+        
+        
+        if args.dataset == 'DTU':
+            render_pkg = render_for_opa(viewpoint_cam, gaussians, pipe, background)
+            (render_pkg["alpha"][bg_mask]**2).mean().backward()
+            gaussians.optimizer.step()
+            gaussians.optimizer.zero_grad(set_to_none = True)
+
+# -------------------------------------------------- DEPTH --------------------------------------------
+
+        # ---------------------------------------------- Photometric --------------------------------------------
+        
+        render_pkg, _ = render(viewpoint_cam, gaussians, pipe, bg, scaling_modifier = 1.0, 
+                            separate_sh = False, override_color = None,  is_ret_rasterizer=is_ret_rasterizer)
+        image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        # depth
+        depth, opacity = render_pkg["depth"], render_pkg["opacity"] # [visibility_filter]
+
+        # Loss
         if viewpoint_cam.nv_mask is not None:
             mask = torch.from_numpy(viewpoint_cam.nv_mask).to("cuda").bool()
             mask_3d = mask.unsqueeze(0)
@@ -240,13 +363,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1 = l1_loss(image, gt_image, mask_3d)
         else:
             Ll1 = l1_loss(image, gt_image)
-            
-        if FUSED_SSIM_AVAILABLE:
-            ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
-        else:
-            ssim_value = ssim(image, gt_image)
+        # Ll1 = l1_loss(image, gt_image)
 
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+        loss = Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+
+        # Reg
+        loss_reg = torch.tensor(0., device=loss.device)
+        shape_pena = (gaussians.get_scaling.max(dim=1).values / gaussians.get_scaling.min(dim=1).values).mean()
+        # scale_pena = (gaussians.get_scaling.max(dim=1).values).std()
+        scale_pena = ((gaussians.get_scaling.max(dim=1, keepdim=True).values)**2).mean()
+        opa_pena = 1 - (opacity[opacity > 0.2]**2).mean() + ((1 - opacity[opacity < 0.2])**2).mean()
+
+        # loss_reg += 0.01*shape_pena + 0.001*scale_pena + 0.01*opa_pena
+        loss_reg += opt.shape_pena*shape_pena + opt.scale_pena*scale_pena + opt.opa_pena*opa_pena
+        loss += loss_reg
+
+        loss.backward()
+        
+#------------------from DNGaussian-----------------------------------------
+
 
         # Isotropic loss from MonoGS
         # scaling = gaussians.get_scaling
@@ -254,47 +389,58 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # loss += isotropic_loss.mean()
         
         # Depth regularization
-        Ll1depth_pure = 0.0
-        if depth_l1_weight(iteration) > 0 :
-            invDepth = render_pkg["depth"]
-            if viewpoint_cam.nv_mask is not None:
-                invDepth = invDepth
-                depth = torch.from_numpy(viewpoint_cam.depth).cuda()
-            else:
-                depth = torch.from_numpy(viewpoint_cam.depth).cuda()
+        # Ll1depth_pure = 0.0
+        # if depth_l1_weight(iteration) > 0 :
+        #     invDepth = render_pkg["depth"]
+        #     if viewpoint_cam.nv_mask is not None:
+        #         invDepth = invDepth
+        #         depth = torch.from_numpy(viewpoint_cam.depth).cuda()
+        #     else:
+        #         depth = torch.from_numpy(viewpoint_cam.depth).cuda()
 
-            depth = torch.clamp(depth, min=1e-8)
-            depth_reciprocal = torch.reciprocal(depth).cuda()
-            Ll1depth_pure = torch.abs(invDepth  - depth_reciprocal).mean()
-            Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
-            loss += Ll1depth
-            Ll1depth = Ll1depth.item()
-        else:
-            Ll1depth = 0
+        #     depth = torch.clamp(depth, min=1e-8)
+        #     depth_reciprocal = torch.reciprocal(depth).cuda()
+        #     Ll1depth_pure = torch.abs(invDepth  - depth_reciprocal).mean()
+        #     Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
+        #     loss += Ll1depth
+        #     Ll1depth = Ll1depth.item()
+        # else:
+        #     Ll1depth = 0
 
-        loss.backward()
+        # loss.backward()
+
+        is_not_pruned = True
+        is_final = False
+        if iteration is prun_iters or iteration == opt.iterations:
+            print(f"purning! iter:{iteration}")
+            is_final = True
+            is_not_pruned = False
+            mesh_dist_loss, mesh_color_loss, sdf_loss = get_mesh_point_dist_with_normal_consistency(
+                mesh_vertices, mesh_colors, mesh_normals, gaussians, is_final)
 
         iter_end.record()
         
-        if viewpoint_cam.nv_mask is not None:
+        if viewpoint_cam.nv_mask is not None and is_not_pruned:
             grad_mask = get_grad_switched_gaussians(gaussians, viewpoint_cam, rasterizer)
 
-            def mask_gradients(grad):
-                grad[grad_mask] = 0
-                return grad
-
-            # Gradient 수정에 Hook 사용
-            gaussians._xyz.register_hook(mask_gradients)
-            gaussians._features_dc.register_hook(mask_gradients)
-            gaussians._features_rest.register_hook(mask_gradients)
-            gaussians._scaling.register_hook(mask_gradients)
-            gaussians._rotation.register_hook(mask_gradients)
-            gaussians._opacity.register_hook(mask_gradients)
+            grad_mask = ~grad_mask
+            if gaussians._xyz.grad is not None:
+                gaussians._xyz.grad[grad_mask] = 0
+            if gaussians._features_dc.grad is not None:
+                gaussians._features_dc.grad[grad_mask] = 0
+            if gaussians._features_rest.grad is not None:
+                gaussians._features_rest.grad[grad_mask] = 0
+            if gaussians._scaling.grad is not None:
+                gaussians._scaling.grad[grad_mask] = 0
+            if gaussians._rotation.grad is not None:
+                gaussians._rotation.grad[grad_mask] = 0
+            if gaussians._opacity.grad is not None:
+                gaussians._opacity.grad[grad_mask] = 0
 
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
+            # ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
 
             if iteration % 10 == 0:
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
@@ -303,13 +449,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.close()
 
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
+            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1.0, False, None, False), dataset.train_test_exp)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
             # Densification
-            if iteration < opt.densify_until_iter:
+            if iteration < opt.densify_until_iter and is_not_pruned:
                 # Keep track of max radii in image-space for pruning
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
@@ -322,7 +468,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     gaussians.reset_opacity()
 
             # Optimizer step
-            if iteration < opt.iterations:
+            if iteration < opt.iterations and is_not_pruned:
                 gaussians.exposure_optimizer.step()
                 gaussians.exposure_optimizer.zero_grad(set_to_none = True)
                 if use_sparse_adam:
@@ -429,17 +575,21 @@ if __name__ == "__main__":
     args.novelTrain = True
     
     if args.dataset == "LLFF":
-        args.source_path = f"./data/llff/{target}"
+        args.source_path = f"./data/LLFF/{target}"
     elif args.dataset == "DTU":
-        args.source_path = f"./data/dtu/{target}"
-    args.model_path = f"output/{args.dataset}/{target}_pcd_mesh_novel"
+        args.source_path = f"./data/DTU/{target}"
+    # args.model_path = f"output/{args.dataset}/{target}_pcd_mesh_novel"
+    args.model_path = f"output/{args.dataset}/{target}"
     args.iteration = 20_000
+
+    prun_iters = [2500, 5000, 7500, 10000, 12500, 15000, 17500, 20000, 22500, 25000, 27500, 30000]
 
     # Start GUI server, configure and run training
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args), 
+             args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, prun_iters)
 
     # All done
     print("\nTraining complete.")

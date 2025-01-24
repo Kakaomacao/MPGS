@@ -37,6 +37,83 @@ class FusedSSIMMap(torch.autograd.Function):
         grad = fusedssim_backward(C1, C2, img1, img2, opt_grad)
         return None, None, grad, None
 
+#------------------from DNGaussian-----------------------------------------
+def normalize(input, mean=None, std=None):
+    input_mean = torch.mean(input, dim=1, keepdim=True) if mean is None else mean
+    input_std = torch.std(input, dim=1, keepdim=True) if std is None else std
+    return (input - input_mean) / (input_std + 1e-2*torch.std(input.reshape(-1)))
+
+def shuffle(input):
+    # shuffle dim=1
+    idx = torch.randperm(input[0].shape[1])
+    for i in range(input.shape[0]):
+        input[i] = input[i][:, idx].view(input[i].shape)
+
+def loss_depth_smoothness(depth, img):
+    img_grad_x = img[:, :, :, :-1] - img[:, :, :, 1:]
+    img_grad_y = img[:, :, :-1, :] - img[:, :, 1:, :]
+    weight_x = torch.exp(-torch.abs(img_grad_x).mean(1).unsqueeze(1))
+    weight_y = torch.exp(-torch.abs(img_grad_y).mean(1).unsqueeze(1))
+
+    loss = (((depth[:, :, :, :-1] - depth[:, :, :, 1:]).abs() * weight_x).sum() +
+            ((depth[:, :, :-1, :] - depth[:, :, 1:, :]).abs() * weight_y).sum()) / \
+           (weight_x.sum() + weight_y.sum())
+    return loss
+
+def loss_depth_grad(depth, img):
+    img_grad_x = img[:, :, :, :-1] - img[:, :, :, 1:]
+    img_grad_y = img[:, :, :-1, :] - img[:, :, 1:, :]
+    weight_x = img_grad_x / (torch.abs(img_grad_x) + 1e-6)
+    weight_y = img_grad_y / (torch.abs(img_grad_y) + 1e-6)
+
+    depth_grad_x = depth[:, :, :, :-1] - depth[:, :, :, 1:]
+    depth_grad_y = depth[:, :, :-1, :] - depth[:, :, 1:, :]
+    grad_x = depth_grad_x / (torch.abs(depth_grad_x) + 1e-6)
+    grad_y = depth_grad_y / (torch.abs(depth_grad_y) + 1e-6)
+
+    loss = l1_loss(grad_x, weight_x) + l1_loss(grad_y, weight_y)
+    return loss
+
+def patchify(input, patch_size):
+    patches = F.unfold(input, kernel_size=patch_size, stride=patch_size).permute(0,2,1).view(-1, 1*patch_size*patch_size)
+    return patches
+
+def margin_l2_loss(network_output, gt, margin, return_mask=False):
+    mask = (network_output - gt).abs() > margin
+    if not return_mask:
+        return ((network_output - gt)[mask] ** 2).mean()
+    else:
+        return ((network_output - gt)[mask] ** 2).mean(), mask
+    
+def margin_l1_loss(network_output, gt, margin, return_mask=False):
+    mask = (network_output - gt).abs() > margin
+    if not return_mask:
+        return ((network_output - gt)[mask].abs()).mean()
+    else:
+        return ((network_output - gt)[mask].abs()).mean(), mask
+    
+def patch_norm_mse_loss(input, target, patch_size, margin, return_mask=False):
+    input_patches = normalize(patchify(input, patch_size))
+    target_patches = normalize(patchify(target, patch_size))
+    return margin_l2_loss(input_patches, target_patches, margin, return_mask)
+
+def patch_norm_mse_loss_global(input, target, patch_size, margin, return_mask=False):
+    input_patches = normalize(patchify(input, patch_size), std = input.std().detach())
+    target_patches = normalize(patchify(target, patch_size), std = target.std().detach())
+    return margin_l2_loss(input_patches, target_patches, margin, return_mask)
+
+def patch_norm_l1_loss_global(input, target, patch_size, margin, return_mask=False):
+    input_patches = normalize(patchify(input, patch_size), std = input.std().detach())
+    target_patches = normalize(patchify(target, patch_size), std = target.std().detach())
+    return margin_l1_loss(input_patches, target_patches, margin, return_mask)
+
+def patch_norm_l1_loss(input, target, patch_size, margin, return_mask=False):
+    input_patches = normalize(patchify(input, patch_size))
+    target_patches = normalize(patchify(target, patch_size))
+    return margin_l1_loss(input_patches, target_patches, margin, return_mask)
+#------------------from DNGaussian-----------------------------------------
+
+
 def l1_loss(network_output, gt, mask=None):
     if mask is not None:
         # if mask.shape != network_output.shape:

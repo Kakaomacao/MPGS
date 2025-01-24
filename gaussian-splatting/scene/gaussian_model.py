@@ -21,6 +21,7 @@ from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
+from scene.neural_renderer import GridRenderer
 
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
