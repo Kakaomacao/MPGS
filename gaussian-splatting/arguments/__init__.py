@@ -82,7 +82,7 @@ class OptimizationParams(ParamGroup):
         self.position_lr_init = 0.0016
         self.position_lr_final = 0.000016
         self.position_lr_delay_mult = 0.01
-        self.position_lr_max_steps = 9_000
+        self.position_lr_max_steps = 5_500
         self.feature_lr = 0.0025
         self.opacity_lr = 0.05
         self.scaling_lr = 0.003
@@ -103,7 +103,7 @@ class OptimizationParams(ParamGroup):
 
         self.neural_grid = 5e-3
         self.neural_net = 5e-4
-        self.error_tolerance = 0.2
+        self.error_tolerance = 0.01
         self.split_opacity_thresh = 0.1
         self.soft_depth_start = 1000
         self.hard_depth_start = 0
