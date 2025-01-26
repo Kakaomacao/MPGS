@@ -162,7 +162,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     pruning_iter = 3
     novel_train_iter = 10000
     mesh_scale = 1.0
-    mesh_path = f"/home/lsw/Dataset/DTU/dtu_4/{target}/dust3r_test/ply/poisson_mesh_depth_10.ply"
+    mesh_path = f"./data/DTU/{target}/dust3r/ply/poisson_mesh_depth_10.ply"
     mesh_vertices_np, mesh_colors_np, mesh_normals_np = load_mesh(mesh_path, mesh_scale)
     mesh_vertices = torch.tensor(mesh_vertices_np, device='cuda', dtype=torch.float32).contiguous()
     mesh_colors = torch.tensor(mesh_colors_np, device='cuda', dtype=torch.float32).contiguous()
@@ -411,7 +411,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         is_not_pruned = True
         is_final = False
-        if iteration is prun_iters or iteration == opt.iterations:
+        if iteration in prun_iters or iteration == opt.iterations:
             print(f"purning! iter:{iteration}")
             is_final = True
             is_not_pruned = False
@@ -569,7 +569,7 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    target = "scan38"
+    target = "scan8"
     args.dataset = "DTU"
     args.eval = True
     args.novelTrain = True
@@ -582,7 +582,7 @@ if __name__ == "__main__":
     args.model_path = f"output/{args.dataset}/{target}"
     args.iteration = 20_000
 
-    prun_iters = [2500, 5000, 7500, 10000, 12500, 15000, 17500, 20000, 22500, 25000, 27500, 30000]
+    prun_iters = [10, 2500, 5000, 7500, 10000, 12500, 15000, 17500, 20000, 22500, 25000, 27500, 30000]
 
     # Start GUI server, configure and run training
     if not args.disable_viewer:
