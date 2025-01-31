@@ -160,6 +160,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
 
+    opt.iterations = 3000
+
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
@@ -279,17 +281,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if viewpoint_cam.nv_mask is not None:
             grad_mask = get_grad_switched_gaussians(gaussians, viewpoint_cam, rasterizer)
 
-            def mask_gradients(grad):
-                grad[grad_mask] = 0
-                return grad
-
-            # Gradient 수정에 Hook 사용
-            gaussians._xyz.register_hook(mask_gradients)
-            gaussians._features_dc.register_hook(mask_gradients)
-            gaussians._features_rest.register_hook(mask_gradients)
-            gaussians._scaling.register_hook(mask_gradients)
-            gaussians._rotation.register_hook(mask_gradients)
-            gaussians._opacity.register_hook(mask_gradients)
+            grad_mask = ~grad_mask
+            if gaussians._xyz.grad is not None:
+                gaussians._xyz.grad[grad_mask] = 0
+            if gaussians._features_dc.grad is not None:
+                gaussians._features_dc.grad[grad_mask] = 0
+            if gaussians._features_rest.grad is not None:
+                gaussians._features_rest.grad[grad_mask] = 0
+            if gaussians._scaling.grad is not None:
+                gaussians._scaling.grad[grad_mask] = 0
+            if gaussians._rotation.grad is not None:
+                gaussians._rotation.grad[grad_mask] = 0
+            if gaussians._opacity.grad is not None:
+                gaussians._opacity.grad[grad_mask] = 0
 
         with torch.no_grad():
             # Progress bar
@@ -423,16 +427,17 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    target = "scan38"
+    target = "scan8"
     args.dataset = "DTU"
     args.eval = True
     args.novelTrain = True
     
     if args.dataset == "LLFF":
-        args.source_path = f"./data/llff/{target}"
+        args.source_path = f"./data/LLFF/{target}"
     elif args.dataset == "DTU":
-        args.source_path = f"./data/dtu/{target}"
-    args.model_path = f"output/{args.dataset}/{target}_pcd_mesh_novel"
+        args.source_path = f"./data/DTU/{target}"
+    # args.model_path = f"output/{args.dataset}/{target}"
+    args.model_path = f"output/DTU/scan8"
     args.iteration = 20_000
 
     # Start GUI server, configure and run training

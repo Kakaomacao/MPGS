@@ -19,8 +19,9 @@ from utils.system_utils import mkdir_p
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
-from utils.graphics_utils import BasicPointCloud
+from utils.graphics_utils import BasicPointCloud, z_score_from_percentage
 from utils.general_utils import strip_symmetric, build_scaling_rotation
+import pytorch3d.ops as p3dops
 
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
@@ -57,12 +58,13 @@ class GaussianModel:
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
         self._opacity = torch.empty(0)
-        self.max_radii2D = torch.empty(0)
+        self.max_radii2D = torch.empty(0).to("cuda")
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
+        self._backup_attributes = {}
         self.setup_functions()
 
     def capture(self):
@@ -132,6 +134,15 @@ class GaussianModel:
     @property
     def get_exposure(self):
         return self._exposure
+    
+    @property
+    def cache(self):
+        return [self._xyz.detach(),
+                self._features_dc.detach(),
+                self._features_rest.detach() if self._features_rest.numel() > 0 else torch.empty(0),
+                self._scaling.detach(),
+                self._rotation.detach(),
+                self._opacity.detach()]
 
     def get_exposure_from_name(self, image_name):
         if self.pretrained_exposures is None:
@@ -198,21 +209,23 @@ class GaussianModel:
                 # A special version of the rasterizer is required to enable sparse adam
                 self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
 
-        self.exposure_optimizer = torch.optim.Adam([self._exposure])
+        if hasattr(self, "_exposure"):
+            self.exposure_optimizer = torch.optim.Adam([self._exposure])
+
+            self.exposure_scheduler_args = get_expon_lr_func(training_args.exposure_lr_init, training_args.exposure_lr_final,
+                                                    lr_delay_steps=training_args.exposure_lr_delay_steps,
+                                                    lr_delay_mult=training_args.exposure_lr_delay_mult,
+                                                    max_steps=training_args.iterations)
 
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
                                                     lr_final=training_args.position_lr_final*self.spatial_lr_scale,
                                                     lr_delay_mult=training_args.position_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps)
         
-        self.exposure_scheduler_args = get_expon_lr_func(training_args.exposure_lr_init, training_args.exposure_lr_final,
-                                                        lr_delay_steps=training_args.exposure_lr_delay_steps,
-                                                        lr_delay_mult=training_args.exposure_lr_delay_mult,
-                                                        max_steps=training_args.iterations)
 
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
-        if self.pretrained_exposures is None:
+        if hasattr(self, "pretrained_exposures") and self.pretrained_exposures is None:
             for param_group in self.exposure_optimizer.param_groups:
                 param_group['lr'] = self.exposure_scheduler_args(iteration)
 
@@ -221,6 +234,9 @@ class GaussianModel:
                 lr = self.xyz_scheduler_args(iteration)
                 param_group['lr'] = lr
                 return lr
+            
+    def update_spatial_lr_scale(self, spatial_lr_scale):
+        self.spatial_lr_scale = spatial_lr_scale
 
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
@@ -361,7 +377,8 @@ class GaussianModel:
 
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
-        self.tmp_radii = self.tmp_radii[valid_points_mask]
+        if hasattr(self, "tmp_radii") and self.tmp_radii is not None:
+            self.tmp_radii = self.tmp_radii[valid_points_mask]
 
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
@@ -385,7 +402,7 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii):
+    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii=None):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
@@ -401,7 +418,7 @@ class GaussianModel:
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
 
-        self.tmp_radii = torch.cat((self.tmp_radii, new_tmp_radii))
+        # self.tmp_radii = torch.cat((self.tmp_radii, new_tmp_radii))
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
@@ -425,9 +442,9 @@ class GaussianModel:
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
-        new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
+        # new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii=None)
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
@@ -445,15 +462,15 @@ class GaussianModel:
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
 
-        new_tmp_radii = self.tmp_radii[selected_pts_mask]
+        # new_tmp_radii = self.tmp_radii[selected_pts_mask]
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
 
-    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii):
+    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii=None):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
-        self.tmp_radii = radii
+        # self.tmp_radii = radii
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
 
@@ -463,11 +480,103 @@ class GaussianModel:
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
         self.prune_points(prune_mask)
-        tmp_radii = self.tmp_radii
-        self.tmp_radii = None
+        # tmp_radii = self.tmp_radii
+        # self.tmp_radii = None
 
         torch.cuda.empty_cache()
+
+    def densify(self, max_grad, extent):
+        grads = self.xyz_gradient_accum / self.denom
+        grads[grads.isnan()] = 0.0
+        print(f'grads.max(): {grads.max()}')
+        self.densify_and_clone(grads, max_grad, extent)
+        self.densify_and_split(grads, max_grad, extent)
+
+    def prune(self, min_opacity, extent, max_screen_size):
+        prune_mask = (self.get_opacity < min_opacity).squeeze()
+        if max_screen_size:
+            big_points_vs = self.max_radii2D > max_screen_size
+            big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+            prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+        print("Pruning: {} points removed".format(prune_mask.sum()))
+        self.prune_points(prune_mask)
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
+
+    def add_densification_stats_no_grad(self, viewspace_point_tensor, update_filter):
+        self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor[update_filter,:2], dim=-1, keepdim=True)
+        self.denom[update_filter] += 1
+
+    def remove_outliers(self, opt, step, linear=False, removing_ratio=0, remaining_rate=0.0):
+        """Assume as Gaussian distribution
+        removing_ratio: the removing_ratio of removing points
+        remain_rate: the ratio of remaining points in ratio
+        """
+        xyz = self.get_xyz.detach()
+        num_points = xyz.shape[0]
+        if not linear:
+            lambda_sigma = float(z_score_from_percentage(removing_ratio)) if removing_ratio > 0 else 1 # default 1
+        else: 
+            # in this case, we believe that the pointcloud are more and more dense,
+            # so the std_nearest_k_distance + mean_nearest_k_distance are smaller and smaller
+            # thus the lambda_sigma should be bigger and bigger, from 1 -> z_score_from_percentage(1)
+            iter_start = opt.densify_from_iter
+            iter_end = opt.densify_until_iter
+            init_lambda_sigma = 1
+            final_lambda_sigma = float(z_score_from_percentage(1))
+            lambda_sigma = init_lambda_sigma + (final_lambda_sigma - init_lambda_sigma) * (step - iter_start) / (iter_end - iter_start)
+        nearest_k_distance = p3dops.knn_points(
+            xyz.unsqueeze(0),
+            xyz.unsqueeze(0),
+            K=int(num_points**0.5),
+        ).dists
+        mean_nearest_k_distance, std_nearest_k_distance = nearest_k_distance.mean(), nearest_k_distance.std()
+        mask = nearest_k_distance.mean(dim = -1) >= (mean_nearest_k_distance + lambda_sigma * std_nearest_k_distance)
+        mask = mask.squeeze()
+
+        if remaining_rate > 0: # since the gs cannot generate point from None, we may need to keep some points incase of empty
+            num_remove_points = mask.sum()
+            num_remain_points = int(num_remove_points * remaining_rate)
+            remove_indices = torch.where(mask)[0]
+            # Randomly select indices to keep
+            keep_indices = remove_indices[torch.randperm(remove_indices.size(0))[:num_remain_points]]
+            # Update the mask: set selected points to False (to keep)
+            mask[keep_indices] = False
+
+        self.prune_points(mask)
+        torch.cuda.empty_cache()
+
+
+    def add_statistics_noise(self, statistics_info, noise_dropout: float = 0., std_scale: float = 0.7):
+        # List of attributes to add noise to '_xyz', '_features_dc', '_features_rest', '_scaling', '_rotation', '_opacity'
+        attributes_to_noise = ['_xyz', '_features_dc', '_features_rest', '_scaling', '_rotation', '_opacity']
+
+        # get the means and vars of statistics_info
+        means, stds = {}, {}
+
+        for key in statistics_info[0].keys():
+            means[key] = np.mean([info[key][0] for info in statistics_info], axis=0)
+            stds[key] = np.mean([info[key][1] for info in statistics_info], axis=0)
+
+        # Backup and add noise
+        for attr in attributes_to_noise:
+            self._backup_attributes[attr] = getattr(self, attr)
+            if attr in ['_xyz', '_scaling', '_rotation', '_opacity']:
+                cur_std = torch.from_numpy(stds[attr]).float().to(self._backup_attributes[attr].device)
+                cur_mean = torch.from_numpy(means[attr]).float().to(self._backup_attributes[attr].device)
+
+                # generate noise with mean and std
+                noise = torch.randn_like(getattr(self, attr)) * cur_std + cur_mean
+                if attr == '_scaling' or attr == '_opacity' or attr == '_rotation':
+                    noise = torch.clamp(noise, cur_mean - std_scale * cur_std, cur_mean + std_scale * cur_std)
+
+                noise[torch.rand_like(getattr(self, attr)) < noise_dropout] = 0
+                setattr(self, attr, getattr(self, attr) + noise)
+
+
+    def restore_noise(self):
+        # Restore the attributes from backup
+        for attr, value in self._backup_attributes.items():
+            setattr(self, attr, value)

@@ -19,9 +19,9 @@ def main():
     
     # 소스 설정
     if dataset_type == "DTU":
-        source_root = f"./data/dtu" 
+        source_root = f"./data/DTU" 
     elif dataset_type == "LLFF":
-        source_root = f"./data/llff"
+        source_root = f"./data/LLFF"
     
     # 각 children 폴더에 대해 처리
     for target_data in tqdm(os.listdir(source_root), desc=f"Processing {dataset_type} with {framework}", position=0, leave=True):

@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import cv2
 from scene.cameras import Camera
 import numpy as np
 import skimage.transform as st
@@ -89,3 +90,27 @@ def camera_to_JSON(id, camera : Camera):
         'fx' : fov2focal(camera.FovX, camera.width)
     }
     return camera_entry
+
+def resize_mask_image(mask, resolution):
+    """
+    Resize the image to the specified resolution.
+
+    Args:
+        mask (np.array): Input mask image as a NumPy array with shape (h, w).
+        resolution (tuple): Target resolution as a tuple (width, height).
+
+    Returns:
+        np.array: Resized mask image as a NumPy array with shape (h, w).
+    """
+    # Ensure that resolution is in (width, height) format
+    width, height = resolution
+
+    # Resize the mask image
+    resized_mask = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
+
+    return resized_mask
+
+def load_raw_depth(fpath="raw.png"):
+    depth = cv2.imread(fpath, -1)
+    depth = (depth / 1000).astype(np.float32) # type: ignore
+    return depth

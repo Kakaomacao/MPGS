@@ -60,7 +60,7 @@ class ModelParams(ParamGroup):
         self.novelTrain = False
         self.dataset = "DTU"
         self.input_views = 3
-        self.dtu_mask_path = '/home/airlabs/Dataset/DTU/submission_data/idrmasks'
+        self.dtu_mask_path = '/home/lsw/Dataset/DTU/submission_data/idrmasks'
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -100,6 +100,10 @@ class OptimizationParams(ParamGroup):
         self.densify_grad_threshold = 0.0002
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01
+
+        self.lambda_silhouette = 0.01
+        self.remove_outliers_interval = 500
+        
         self.random_background = False
         self.optimizer_type = "default"
         super().__init__(parser, "Optimization Parameters")

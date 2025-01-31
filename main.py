@@ -144,9 +144,9 @@ if __name__ == '__main__':
     make_idxs = [i for i in range(49) if i not in exclude_idx]
     
     if dataset == 'dtu':
-        source_path = "/home/airlabs/Dataset/DTU/dtu_4/"
+        source_path = "/home/lsw/Dataset/DTU/dtu_4/"
     elif dataset == 'llff':
-        source_path = "/home/airlabs/Dataset/LLFF/llff_8/"   
+        source_path = "/home/lsw/Dataset/LLFF/llff_8/"   
     
     output_root_path ="./data"
     os.makedirs(output_root_path, exist_ok=True)
@@ -178,10 +178,10 @@ if __name__ == '__main__':
         
         train_img = [os.path.join(img_path, im) for idx, im in enumerate(img_list)]
 
-        if dataset == 'llff':
+        if dataset == 'LLFF':
             train_img_idxs = [idx for idx, im in enumerate(img_list) if im.split(".")[0] in train_images[data]]
             first_img = train_img_idxs[0]
-        elif dataset == 'dtu':
+        elif dataset == 'DTU':
             first_img = "22"
         
         # load_images can take a list of images or a directory
@@ -213,11 +213,11 @@ if __name__ == '__main__':
         
         pcd = o3d.geometry.PointCloud()
 
-        if dataset == 'dtu':
+        if dataset == 'DTU':
             filtered_pcd = [imgs[idx] for idx in train_img_idxs]
             filtered_confidence_masks = [confidence_masks[idx] for idx in train_img_idxs]
             filtered_pts3d = [pts3d[idx] for idx in train_img_idxs]
-        elif dataset == 'llff':
+        elif dataset == 'LLFF':
             filtered_pcd = [imgs[idx] for idx in train_img_idxs]
             filtered_confidence_masks = [confidence_masks[idx] for idx in train_img_idxs]
             filtered_pts3d = [pts3d[idx] for idx in train_img_idxs]
@@ -228,9 +228,9 @@ if __name__ == '__main__':
         os.makedirs(orig, exist_ok=True)
         for idx in train_img_idxs:
             depth_map = np.array(depths[idx].cpu().detach())
-            if dataset == 'llff':
+            if dataset == 'LLFF':
                 resized_depth = cv2.resize(depth_map, (504, 378), interpolation=cv2.INTER_AREA)
-            elif dataset == 'dtu':
+            elif dataset == 'DTU':
                 resized_depth = cv2.resize(depth_map, (400, 300), interpolation=cv2.INTER_AREA) # Best for downscaling
             save_depth(path=orig, depth_map=depth_map, img_name=imgs_name[idx])
             save_depth(path=depth_path, depth_map=resized_depth, img_name=imgs_name[idx])
@@ -278,9 +278,9 @@ if __name__ == '__main__':
         
         poisson_mesh_pipeline(pcd_single, os.path.join(output_dir, "poisson_mesh_depth_10.ply"))
         
-        if dataset == 'llff':
+        if dataset == 'LLFF':
             save_cams(dust3r_path, poses, focals, imgs_name, [512/2, 384/2], 504, 378)
-        elif dataset == 'dtu':
+        elif dataset == 'DTU':
             save_cams(dust3r_path, poses, focals, imgs_name, [512/2, 384/2], 400, 300)
         
         print(f"[INFO] Processing {data} Done.")

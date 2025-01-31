@@ -76,14 +76,14 @@ if __name__ == "__main__":
     args = get_combined_args(parser)
     # print("Rendering " + args.model_path)
 
-    args.dtu_mask_path = '/home/airlabs/Dataset/DTU/submission_data/idrmasks' # 필수
+    args.dtu_mask_path = '/home/lsw/Dataset/DTU/submission_data/idrmasks' # 필수
     args.resolution = 1
     # args.dataset = "LLFF"
     # args.source_path = "/home/airlabs/Dataset/LLFF/llff_8/leaves"
     # args.model_path = "/home/airlabs/MPGS/output/LLFF/leaves_vanila"
     
     args.dataset = "DTU"
-    args.source_path = "./data/dtu/scan38"
+    args.source_path = "./data/DTU/scan38"
     # args.model_path = "/home/airlabs/MPGS/output/236cfc08-6"
     args.sh_degree = 3
     args.images = "images"

@@ -48,6 +48,19 @@ def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
     Rt = np.linalg.inv(C2W)
     return np.float32(Rt)
 
+def getWorld2View2_tensor(R, t, translate=torch.tensor([.0, .0, .0]), scale=1.0):
+    Rt = torch.zeros((4, 4))
+    Rt[:3, :3] = R.transpose(0,1)
+    Rt[:3, 3] = t
+    Rt[3, 3] = 1.0
+
+    C2W = torch.linalg.inv(Rt)
+    cam_center = C2W[:3, 3]
+    cam_center = (cam_center + translate) * scale
+    C2W[:3, 3] = cam_center
+    Rt = torch.linalg.inv(C2W)
+    return Rt.float()
+
 def getProjectionMatrix(znear, zfar, fovX, fovY):
     tanHalfFovY = math.tan((fovY / 2))
     tanHalfFovX = math.tan((fovX / 2))
@@ -75,3 +88,19 @@ def fov2focal(fov, pixels):
 
 def focal2fov(focal, pixels):
     return 2*math.atan(pixels/(2*focal))
+
+import scipy.stats as stats
+def z_score_from_percentage(percentage):
+    """
+    Returns the z-score for a given percentage in a standard normal distribution.
+
+    :param percentage: The desired percentage of points remaining (e.g., 5 for 5%)
+    :return: The corresponding z-score
+    """
+    # Convert percentage to a proportion
+    proportion = percentage / 100
+
+    # Calculate the z-score
+    z_score = stats.norm.ppf(1 - proportion)
+
+    return z_score

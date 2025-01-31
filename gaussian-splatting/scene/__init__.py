@@ -22,7 +22,7 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0]):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0], extra_opts=None, load_ply=None):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -47,7 +47,7 @@ class Scene:
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.depths, args.eval)
         else:
-            assert False, "Could not recognize scene type!"
+            scene_info = sceneLoadTypeCallbacks["DUST3R"](args.source_path, args.images, args.depths, args.eval, 8, args.dataset, args.input_views, args.dtu_mask_path, args.novelTrain)
 
         if not self.loaded_iter:
             with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:
