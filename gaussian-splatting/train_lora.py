@@ -49,7 +49,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     dataset = "DTU"
-    target = "scan8"
+    target = "scan110"
 
     args.exp_name = f"/home/lsw/MPGS/output/{dataset}/{target}_controlnet_finetune"
     args.prompth = "xxy5syt00"

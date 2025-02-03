@@ -12,8 +12,15 @@ def HWC3(x):
     assert x.dtype == np.uint8
     if x.ndim == 2:
         x = x[:, :, None]
+    if x.ndim == 4:
+        x = x.squeeze(0)
+    
     assert x.ndim == 3
     H, W, C = x.shape
+    if H < 10: 
+        x = x.transpose(1, 2, 0)
+    H, W, C = x.shape
+    
     assert C == 1 or C == 3 or C == 4
     if C == 3:
         return x

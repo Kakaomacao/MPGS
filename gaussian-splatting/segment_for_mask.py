@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-target = "scan8"
+target = "scan110"
 
 data_path = f'/home/lsw/MPGS/data/DTU/{target}'
 sparse_num = 3
@@ -67,7 +67,7 @@ for image, input_point_list in zip(images, input_points):
 
 chosed_mask_ids = [2, 2, 2, 2]
 
-masks = [multimasks[i][chosed_mask_ids[i]] for i in range(sparse_num)]
+masks = [~multimasks[i][chosed_mask_ids[i]] for i in range(sparse_num)]
 mask_path = os.path.join(data_path, 'masks')
 if not os.path.exists(mask_path):
     os.makedirs(mask_path)

@@ -198,30 +198,13 @@ if __name__ == "__main__":
         # parser.add_argument("--typecheck", ...)
         typecheck=False,
     )
-
-    # # 2) system 하위 Namespace 생성
-    # args.system = argparse.Namespace(
-    #     init_dreamer="output/DTU/scan8_test",
-    #     exp_name="output/controlnet_finetune/our_scan8",
-    #     refresh_size=1,
-    #     sh_degree=3,
-    # )
-
-    # # 3) data 하위 Namespace 생성
-    # args.data = argparse.Namespace(
-    #     data_dir="/home/lsw/Dataset/forgo/scan8",
-    #     resolution=1,
-    #     sparse_num=3,
-    #     prompt="a photo of a xxy5syt00",
-    #     json_path="output/DTU/scan8_test/cameras.json",
-    #     refresh_size=1,
-    # )
+    #------------------------------------------------------------
 
     dataset = "DTU"
-    target = "scan8"
+    target = "scan110"
 
     extras = [
-        "tag=scan8",
+        f"tag={target}",
         f"system.init_dreamer=output/{dataset}/{target}",
         f"system.exp_name=output/{dataset}/{target}_controlnet_finetune",
         "system.refresh_size=1",

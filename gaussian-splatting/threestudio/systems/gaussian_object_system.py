@@ -34,6 +34,7 @@ from minlora import add_lora, LoRAParametrization
 from threestudio.systems.base import BaseLift3DSystem
 from threestudio.utils.typing import *
 
+import json
 
 @torch.no_grad()
 def process(
@@ -327,8 +328,8 @@ class GaussianDreamer(BaseLift3DSystem):
         }
         for id in range(batch['index'].shape[0]):
             viewpoint_cam = Render_Camera(
-                batch['R'][id],
-                batch['T'][id],
+                batch['R'],
+                batch['T'],
                 batch['fovx'][id],
                 batch['fovy'][id],
                 batch['image'][id],
@@ -386,13 +387,34 @@ class GaussianDreamer(BaseLift3DSystem):
         self.ddim_sampler = DDIMSampler(self.controlnet)
 
     def get_dis_from_ts(self, T):
+        if T.device != self.all_T.device:
+            T = T.to(self.all_T.device)
         return torch.sort(torch.sqrt(torch.sum((T - self.all_T) ** 2, dim=-1)))[0]
 
 
     def get_random_view_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
+
+        novel_view = self.get_novel_view()
+        R = novel_view["R"]
+        T = novel_view["T"]
+        fovx = novel_view["fovx"]
+        fovy = novel_view["fovy"]
+
         focal_length_x = fov2focal(batch['fovx'], batch['width'])
         focal_length_y = fov2focal(batch['fovy'], batch['height'])
         return {
+            # 'index': batch['random_index'],
+            # 'R': R,
+            # 'T': T,
+            # 'height': torch.tensor([self.novel_image_size]),
+            # 'width': torch.tensor([self.novel_image_size]),
+            # 'fovx': fovx,
+            # 'fovy': fovy,
+            # 'image': torch.zeros((batch['image'].shape[0], batch['image'].shape[1], self.novel_image_size, self.novel_image_size), device=batch['image'].device),
+            # 'mask': torch.zeros((batch['mask'].shape[0], self.novel_image_size, self.novel_image_size), device=batch['mask'].device),
+            # 'depth': torch.zeros((batch['depth'].shape[0], self.novel_image_size, self.novel_image_size), device=batch['depth'].device),
+            # 'txt': batch['txt'],
+            'novel_view_image' : novel_view["image"],
             'index': batch['random_index'],
             'R': batch['random_R'],
             'T': batch['random_T'],
@@ -404,6 +426,84 @@ class GaussianDreamer(BaseLift3DSystem):
             'mask': torch.zeros((batch['mask'].shape[0], self.novel_image_size, self.novel_image_size), device=batch['mask'].device),
             'depth': torch.zeros((batch['depth'].shape[0], self.novel_image_size, self.novel_image_size), device=batch['depth'].device),
             'txt': batch['txt']
+        }
+
+    # def load_novel_views(self):
+    #     novel_view_path = "/home/lsw/MPGS/data/DTU/scan8/novel_views"
+    #     """novel view JSON 파일을 읽어 self.novel_views에 저장"""
+    #     json_path = os.path.join(novel_view_path, "cams_novelTrainView.json")
+    #     with open(json_path, "r") as f:
+    #         self.novel_views = json.load(f)
+
+    def get_novel_view(self) -> Dict[str, Any]:
+        # novel view 정보가 아직 로드되지 않았다면 로드합니다.
+        target = self.get_save_dir().split("/")[-2]
+        novel_view_path = f"/home/lsw/MPGS/data/DTU/{target}/novel_views"
+
+        if not hasattr(self, "novel_views"):
+            json_path = os.path.join(novel_view_path, "cams_novelTrainView.json")
+            with open(json_path, "r") as f:
+                self.novel_views = json.load(f)
+            # 순차 접근을 위한 인덱스 초기화
+            self.current_novel_view_idx = 0
+
+        # 현재 인덱스에 해당하는 novel view 정보를 선택합니다.
+        selected = self.novel_views[self.current_novel_view_idx]
+        # 다음 호출 시 사용할 인덱스로 업데이트 (리스트 끝에 도달하면 0부터 재시작)
+        self.current_novel_view_idx = (self.current_novel_view_idx + 1) % len(self.novel_views)
+
+        # 3) Extrinsic(4x4)에서 R(회전)과 T(이동) 분리
+        extrinsic = torch.tensor(selected["extrinsic"], dtype=torch.float32)  # shape: [4,4]
+        R = extrinsic[:3, :3]  # 상위 3x3
+        T = extrinsic[3, :3]   # 마지막 행의 [x,y,z]
+
+        # 4) Intrinsic(3x3)에서 focal_length_x, focal_length_y 추출 후 fov 계산
+        intrinsic = torch.tensor(selected["intrinsic"], dtype=torch.float32)  # shape: [3,3]
+        focal_length_x = intrinsic[0, 0].item()
+        focal_length_y = intrinsic[1, 1].item()
+        fovx = focal2fov(focal_length_x, self.novel_image_size)
+        fovy = focal2fov(focal_length_y, self.novel_image_size)
+
+        # 5) 이미지, 마스크, 뎁스 불러오기
+        img_name = selected["img_name"]
+        image_path = os.path.join(novel_view_path, "images", f"{img_name}.png")
+        mask_path  = os.path.join(novel_view_path, "masks",  f"mask_{img_name}.png")
+        depth_path = os.path.join(novel_view_path, "depths", f"depth_{img_name}.png")
+        import torchvision.transforms as transforms
+        # 6) 리사이즈 + Tensor 변환
+        transform = transforms.Compose([
+            transforms.Resize((self.novel_image_size, self.novel_image_size)),
+            transforms.ToTensor()
+        ])
+
+        # (1) RGB 이미지
+        image_pil = Image.open(image_path).convert("RGB")
+        image_tensor = transform(image_pil).unsqueeze(0)  # shape: [1, 3, H, W]
+
+        # (2) 마스크 (단일 채널)
+        mask_pil = Image.open(mask_path).convert("L")
+        mask_tensor = transform(mask_pil).unsqueeze(0)    # shape: [1, 1, H, W]
+
+        # (3) 뎁스 (단일 채널)
+        depth_pil = Image.open(depth_path).convert("L")
+        depth_tensor = transform(depth_pil).unsqueeze(0)  # shape: [1, 1, H, W]
+
+        # 텍스트 프롬프트 (없으면 빈 문자열)
+        txt_prompt = selected.get("txt", "")
+
+        # 최종 딕셔너리 구성
+        return {
+            "index": torch.tensor([selected["id"]], dtype=torch.long),
+            "R": R,  # shape: [3, 3]
+            "T": T,  # shape: [3]
+            "height": torch.tensor([self.novel_image_size], dtype=torch.long),
+            "width":  torch.tensor([self.novel_image_size], dtype=torch.long),
+            "fovx":   torch.tensor([fovx], dtype=torch.float32),
+            "fovy":   torch.tensor([fovy], dtype=torch.float32),
+            "image":  image_tensor,  # shape: [1, 3, H, W]
+            "mask":   mask_tensor,   # shape: [1, 1, H, W]
+            "depth":  depth_tensor,  # shape: [1, 1, H, W]
+            "txt":    txt_prompt
         }
 
     def training_step(self, batch, batch_idx):
@@ -435,6 +535,9 @@ class GaussianDreamer(BaseLift3DSystem):
                     controlent_batch['random_R'] = R
                     controlent_batch['random_T'] = T
                     controlent_batch = self.get_random_view_batch(controlent_batch)
+                    novel_train_view = controlent_batch['novel_view_image'].numpy()
+                    novel_train_view = novel_train_view.astype(np.uint8)
+
                     render_results = self.render_gs(controlent_batch, renderbackground=self.background_tensor, need_loss=False)
                     images = render_results['images']
                     image = images[0]
@@ -444,6 +547,7 @@ class GaussianDreamer(BaseLift3DSystem):
                         self.controlnet,
                         self.ddim_sampler,
                         image_np,
+                        # novel_train_view,
                         prompt = batch['txt'][0],
                         a_prompt = 'best quality',
                         n_prompt = 'blur, lowres, bad anatomy, bad hands, cropped, worst quality',
@@ -481,6 +585,8 @@ class GaussianDreamer(BaseLift3DSystem):
         ctrl_loss = 0.
         if self.ctrl_loss_ratio > 0.0:
             batch = self.get_random_view_batch(batch)
+            novel_train_view = batch['novel_view_image'].numpy()
+            novel_train_view = novel_train_view.astype(np.uint8)
 
             render_results = self.render_gs(batch, renderbackground=self.background_tensor, need_loss=False)
             images = render_results['images']
@@ -500,6 +606,7 @@ class GaussianDreamer(BaseLift3DSystem):
                             self.controlnet,
                             self.ddim_sampler,
                             image_np,
+                            # novel_train_view,
                             prompt = batch['txt'][idx],
                             a_prompt = 'best quality',
                             n_prompt = 'blur, lowres, bad anatomy, bad hands, cropped, worst quality',
@@ -525,6 +632,7 @@ class GaussianDreamer(BaseLift3DSystem):
                         self.controlnet,
                         self.ddim_sampler,
                         image_np,
+                        # novel_train_view,
                         prompt = batch['txt'][idx],
                         a_prompt = 'best quality',
                         n_prompt = 'blur, lowres, bad anatomy, bad hands, cropped, worst quality',

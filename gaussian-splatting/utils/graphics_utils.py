@@ -50,6 +50,8 @@ def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
 
 def getWorld2View2_tensor(R, t, translate=torch.tensor([.0, .0, .0]), scale=1.0):
     Rt = torch.zeros((4, 4))
+    if R.dim() == 3:
+        R = R.squeeze(0)
     Rt[:3, :3] = R.transpose(0,1)
     Rt[:3, 3] = t
     Rt[3, 3] = 1.0

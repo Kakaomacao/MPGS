@@ -256,44 +256,44 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # loss += isotropic_loss.mean()
         
         # Depth regularization
-        Ll1depth_pure = 0.0
-        if depth_l1_weight(iteration) > 0 :
-            invDepth = render_pkg["depth"]
-            if viewpoint_cam.nv_mask is not None:
-                invDepth = invDepth
-                depth = torch.from_numpy(viewpoint_cam.depth).cuda()
-            else:
-                depth = torch.from_numpy(viewpoint_cam.depth).cuda()
+        # Ll1depth_pure = 0.0
+        # if depth_l1_weight(iteration) > 0 :
+        #     invDepth = render_pkg["depth"]
+        #     if viewpoint_cam.nv_mask is not None:
+        #         invDepth = invDepth
+        #         depth = torch.from_numpy(viewpoint_cam.depth).cuda()
+        #     else:
+        #         depth = torch.from_numpy(viewpoint_cam.depth).cuda()
 
-            depth = torch.clamp(depth, min=1e-8)
-            depth_reciprocal = torch.reciprocal(depth).cuda()
-            Ll1depth_pure = torch.abs(invDepth  - depth_reciprocal).mean()
-            Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
-            loss += Ll1depth
-            Ll1depth = Ll1depth.item()
-        else:
-            Ll1depth = 0
-
+        #     depth = torch.clamp(depth, min=1e-8)
+        #     depth_reciprocal = torch.reciprocal(depth).cuda()
+        #     Ll1depth_pure = torch.abs(invDepth  - depth_reciprocal).mean()
+        #     Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
+        #     loss += Ll1depth
+        #     Ll1depth = Ll1depth.item()
+        # else:
+        #     Ll1depth = 0
+        Ll1depth = 0
         loss.backward()
 
         iter_end.record()
         
-        if viewpoint_cam.nv_mask is not None:
-            grad_mask = get_grad_switched_gaussians(gaussians, viewpoint_cam, rasterizer)
+        # if viewpoint_cam.nv_mask is not None:
+        #     grad_mask = get_grad_switched_gaussians(gaussians, viewpoint_cam, rasterizer)
 
-            grad_mask = ~grad_mask
-            if gaussians._xyz.grad is not None:
-                gaussians._xyz.grad[grad_mask] = 0
-            if gaussians._features_dc.grad is not None:
-                gaussians._features_dc.grad[grad_mask] = 0
-            if gaussians._features_rest.grad is not None:
-                gaussians._features_rest.grad[grad_mask] = 0
-            if gaussians._scaling.grad is not None:
-                gaussians._scaling.grad[grad_mask] = 0
-            if gaussians._rotation.grad is not None:
-                gaussians._rotation.grad[grad_mask] = 0
-            if gaussians._opacity.grad is not None:
-                gaussians._opacity.grad[grad_mask] = 0
+        #     grad_mask = ~grad_mask
+        #     if gaussians._xyz.grad is not None:
+        #         gaussians._xyz.grad[grad_mask] = 0
+        #     if gaussians._features_dc.grad is not None:
+        #         gaussians._features_dc.grad[grad_mask] = 0
+        #     if gaussians._features_rest.grad is not None:
+        #         gaussians._features_rest.grad[grad_mask] = 0
+        #     if gaussians._scaling.grad is not None:
+        #         gaussians._scaling.grad[grad_mask] = 0
+        #     if gaussians._rotation.grad is not None:
+        #         gaussians._rotation.grad[grad_mask] = 0
+        #     if gaussians._opacity.grad is not None:
+        #         gaussians._opacity.grad[grad_mask] = 0
 
         with torch.no_grad():
             # Progress bar
@@ -427,17 +427,17 @@ if __name__ == "__main__":
     # Initialize system state (RNG)
     safe_state(args.quiet)
 
-    target = "scan8"
+    target = "scan110"
     args.dataset = "DTU"
     args.eval = True
-    args.novelTrain = True
+    args.novelTrain = False
     
     if args.dataset == "LLFF":
         args.source_path = f"./data/LLFF/{target}"
     elif args.dataset == "DTU":
         args.source_path = f"./data/DTU/{target}"
     # args.model_path = f"output/{args.dataset}/{target}"
-    args.model_path = f"output/DTU/scan8"
+    args.model_path = f"output/DTU/{target}"
     args.iteration = 20_000
 
     # Start GUI server, configure and run training

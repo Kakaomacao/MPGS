@@ -328,7 +328,7 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
 
     dataset = "DTU"
-    target = "scan8"
+    target = "scan110"
     args.source_path = f"./data/{dataset}/{target}"
     args.model_path = f"output/{dataset}/{target}_loo"
     args.resolution = 1
